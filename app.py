@@ -463,19 +463,39 @@ def _run_scan(scantime, use_cloud, forcescan):
         _set_job(progress="Listening on LAN for %ss (matching against %d cloud device%s)..." % (
             scantime, len(cloud_list), "" if len(cloud_list) == 1 else "s"))
 
-        found = scanner.devices(
+        forcescan_enabled = bool(forcescan and cloud_list)
+        scan_kwargs = dict(
             byID=True,
             tuyadevices=cloud_list,
             scantime=scantime,
             color=False,
             poll=False,
-            forcescan=bool(forcescan and cloud_list),
             verbose=False,
             # This runs headless (no terminal attached), so tinytuya must
             # never fall back to input() to ask "scan this network?" /
             # "poll local devices?" - that raises EOFError with no stdin.
             assume_yes=True,
         )
+        try:
+            found = scanner.devices(forcescan=forcescan_enabled, **scan_kwargs)
+        except OSError as e:
+            # Force-scanning connects to real devices and does a protocol
+            # handshake (session-key negotiation for v3.4/3.5). If a device
+            # rejects/closes that connection mid-handshake - wrong key,
+            # busy, protocol quirk - tinytuya can raise a raw socket error
+            # (BrokenPipeError/ConnectionResetError/etc, all OSError
+            # subclasses) that aborts the *entire* scan, not just that one
+            # device. Don't let one flaky device sink the whole sync -
+            # fall back to broadcast-only results instead.
+            if not forcescan_enabled:
+                raise
+            _set_job(progress="Force-scan hit a network hiccup (%s) - retrying without it..." % type(e).__name__)
+            found = scanner.devices(forcescan=False, **scan_kwargs)
+            note = ("Force-scan was interrupted by a device on the network (%s), so this "
+                    "sync used broadcast-only discovery. Devices that don't broadcast may be "
+                    "missing an IP this round - try Sync again, or rely on the MAC/ARP sweep."
+                    ) % type(e).__name__
+            _set_job(cloud_error=((SCAN_JOB.get("cloud_error") or "") + " " + note).strip())
 
         # MAC/ARP sweep: for any cloud-known device with a MAC address that
         # the broadcast scan didn't catch this round, try to resolve its
