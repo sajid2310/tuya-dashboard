@@ -147,6 +147,7 @@ function pollScan() {
         banner.className = "banner success";
         const r = job.result || {};
         let msg = `Sync complete — found ${r.found_on_lan || 0} device(s) on the LAN`;
+        if (r.found_by_mac_sweep) msg += `, +${r.found_by_mac_sweep} more located by MAC/ARP sweep`;
         if (r.from_cloud) msg += `, matched against ${r.from_cloud} from your Tuya Cloud account`;
         if (job.cloud_error) msg += `. Cloud note: ${job.cloud_error}`;
         banner.textContent = msg;

@@ -25,9 +25,22 @@ enough to turn devices on/off directly from this page too.
 
 Run this ON the same LAN as your Tuya devices (UDP broadcast doesn't
 cross subnets/VLANs or the public internet).
+
+There's a third discovery path too: if the Cloud API told us a device's
+MAC address but the UDP broadcast scan didn't catch it (broadcasts are
+easy to miss - not every device sends one every scan window), we sweep
+the local subnet(s) on Tuya's local port (6668) and cross-reference the
+machine's ARP table for that MAC, which resolves it straight to an IP -
+the same trick a DHCP-lease/ARP lookup would give you, but without
+needing access to your router.
 """
+import concurrent.futures
+import ipaddress
 import json
 import os
+import re
+import socket
+import subprocess
 import threading
 import time
 import traceback
@@ -38,6 +51,11 @@ from cryptography.fernet import Fernet, InvalidToken
 
 import tinytuya
 from tinytuya import scanner
+
+try:
+    import psutil
+except ImportError:  # pragma: no cover
+    psutil = None
 
 app = Flask(__name__)
 
@@ -176,6 +194,152 @@ REGIONS = {
 }
 
 # ---------------------------------------------------------------------------
+# MAC / ARP resolution ("DHCP-lease-lookup equivalent")
+#
+# Real DNS (nslookup) has nothing to resolve here - IoT devices don't have
+# hostnames - and reading your router's actual DHCP lease table isn't
+# something we can do generically (every router vendor exposes that
+# differently, if at all). The universal LAN-layer equivalent is ARP: it's
+# the table your OS already keeps mapping "IP <-> MAC" for anything it has
+# recently talked to. So:
+#
+#   1. We enumerate this machine's local IPv4 subnet(s).
+#   2. We attempt a plain TCP connect to port 6668 (Tuya's local protocol
+#      port) against every host in those subnet(s). This is unprivileged -
+#      no raw sockets/root needed - and as a side effect it forces the OS
+#      to ARP-resolve every host that's actually online, whether or not
+#      it answers on 6668.
+#   3. We read back the OS ARP table and look up the MAC address(es) the
+#      Cloud API told us about. A hit gives us that device's current IP.
+#
+# This only sees devices on the same L2 subnet as this machine (same
+# constraint as the UDP broadcast scan / any local discovery approach).
+# ---------------------------------------------------------------------------
+TUYA_LOCAL_PORT = 6668
+MAX_SWEEP_HOSTS_PER_NET = 1024   # skip absurdly large/misconfigured subnets
+MAX_NETWORKS_SWEPT = 4           # cap total interfaces swept per sync
+
+_ARP_LINE_RE = re.compile(
+    r"\(?(\d{1,3}(?:\.\d{1,3}){3})\)?\s+at\s+([0-9a-fA-F]{1,2}(?::[0-9a-fA-F]{1,2}){5})"
+)
+
+
+def _normalize_mac(mac):
+    hexonly = re.sub(r"[^0-9a-fA-F]", "", mac or "")
+    if len(hexonly) != 12:
+        return ""
+    return ":".join(hexonly[i:i + 2] for i in range(0, 12, 2)).lower()
+
+
+def _local_ipv4_networks():
+    """This machine's private IPv4 subnets, e.g. [IPv4Network('192.168.1.0/24')]."""
+    nets = []
+    if psutil is None:
+        return nets
+    try:
+        all_addrs = psutil.net_if_addrs()
+    except Exception:  # noqa: BLE001
+        return nets
+    for _iface, addrs in all_addrs.items():
+        for a in addrs:
+            if a.family != socket.AF_INET or not a.address or not a.netmask:
+                continue
+            try:
+                net = ipaddress.ip_network(f"{a.address}/{a.netmask}", strict=False)
+            except ValueError:
+                continue
+            if net.is_loopback or net.is_link_local or not net.is_private:
+                continue
+            if net.num_addresses > MAX_SWEEP_HOSTS_PER_NET:
+                continue
+            nets.append(net)
+    seen = set()
+    uniq = []
+    for n in nets:
+        if str(n) not in seen:
+            seen.add(str(n))
+            uniq.append(n)
+    return uniq[:MAX_NETWORKS_SWEPT]
+
+
+def _tcp_probe(ip, port=TUYA_LOCAL_PORT, timeout=0.35):
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(timeout)
+            return s.connect_ex((str(ip), port)) == 0
+    except OSError:
+        return False
+
+
+def _sweep_networks(networks, max_workers=128):
+    """Attempt a TCP connect to every host in `networks`. Returns IPs that had
+    port 6668 open (probable Tuya devices) - the sweep itself is what
+    populates the OS ARP cache as a side effect for _read_arp_table()."""
+    hosts = []
+    for net in networks:
+        hosts.extend(net.hosts())
+    if not hosts:
+        return []
+    responsive = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futures = {ex.submit(_tcp_probe, h): h for h in hosts}
+        for fut in concurrent.futures.as_completed(futures):
+            try:
+                if fut.result():
+                    responsive.append(str(futures[fut]))
+            except Exception:  # noqa: BLE001
+                pass
+    return responsive
+
+
+def _read_arp_table():
+    """Return {ip: normalized_mac} from the OS ARP cache. Prefers
+    /proc/net/arp (Linux, no external binary needed - works in the slim
+    Docker image), falls back to parsing `arp -a` (macOS and Linux with
+    net-tools installed)."""
+    table = {}
+    proc_arp = Path("/proc/net/arp")
+    if proc_arp.exists():
+        try:
+            for line in proc_arp.read_text().splitlines()[1:]:
+                parts = line.split()
+                if len(parts) >= 4:
+                    ip, flags, mac = parts[0], parts[2], parts[3]
+                    if flags != "0x0" and mac and mac != "00:00:00:00:00:00":
+                        table[ip] = _normalize_mac(mac)
+        except Exception:  # noqa: BLE001
+            pass
+        if table:
+            return table
+    try:
+        out = subprocess.run(
+            ["arp", "-a"], capture_output=True, text=True, timeout=5
+        ).stdout
+        for line in out.splitlines():
+            m = _ARP_LINE_RE.search(line)
+            if m:
+                table[m.group(1)] = _normalize_mac(m.group(2))
+    except Exception:  # noqa: BLE001
+        pass
+    return table
+
+
+def _find_ips_by_mac(target_macs):
+    """Sweep local subnets + read ARP table; return {normalized_mac: ip}
+    for whichever of target_macs were found online."""
+    wanted = {_normalize_mac(m) for m in target_macs if m}
+    wanted.discard("")
+    if not wanted:
+        return {}
+    networks = _local_ipv4_networks()
+    if not networks:
+        return {}
+    _sweep_networks(networks)
+    arp = _read_arp_table()
+    return {mac: ip for ip, mac in arp.items() if mac in wanted}
+
+
+# ---------------------------------------------------------------------------
 # Background scan job
 # ---------------------------------------------------------------------------
 SCAN_JOB = {
@@ -195,10 +359,12 @@ def _set_job(**kwargs):
         SCAN_JOB.update(kwargs)
 
 
-def _merge_and_store(scanned_by_id, cloud_list):
-    """Merge local-scan results and Tuya Cloud device list into our store."""
+def _merge_and_store(scanned_by_id, cloud_list, mac_ip_map=None):
+    """Merge local-scan results, Tuya Cloud device list, and (if used) the
+    MAC/ARP sweep results into our store."""
     store = load_devices()
     now = time.time()
+    mac_ip_map = mac_ip_map or {}
 
     # 1. Start from cloud list: authoritative for name / local_key / category.
     for dev in cloud_list:
@@ -239,14 +405,31 @@ def _merge_and_store(scanned_by_id, cloud_list):
             entry["key"] = info.get("key", "")
         store[dev_id] = entry
 
-    # 3. Anything not seen in this scan (but previously known) -> mark offline.
-    seen_ids = set((scanned_by_id or {}).keys())
+    # 3. Fill in IPs found via the MAC/ARP sweep, for devices the broadcast
+    #    scan missed this round (we only get here for devices with a known
+    #    MAC from the Cloud API that weren't already matched in step 2).
+    matched_by_sweep = set()
+    if mac_ip_map:
+        for dev_id, entry in store.items():
+            if dev_id in (scanned_by_id or {}):
+                continue  # already have a fresher IP from the broadcast scan
+            mac = _normalize_mac(entry.get("mac", ""))
+            if mac and mac in mac_ip_map:
+                entry["ip"] = mac_ip_map[mac]
+                entry["online"] = True
+                entry["last_seen"] = now
+                entry["origin"] = "mac_sweep"
+                store[dev_id] = entry
+                matched_by_sweep.add(dev_id)
+
+    # 4. Anything not seen this round at all -> mark offline.
+    seen_ids = set((scanned_by_id or {}).keys()) | matched_by_sweep
     for dev_id, entry in store.items():
         if dev_id not in seen_ids:
             entry["online"] = False
 
     save_devices(store)
-    return store
+    return store, matched_by_sweep
 
 
 def _run_scan(scantime, use_cloud, forcescan):
@@ -290,14 +473,34 @@ def _run_scan(scantime, use_cloud, forcescan):
             verbose=False,
         )
 
+        # MAC/ARP sweep: for any cloud-known device with a MAC address that
+        # the broadcast scan didn't catch this round, try to resolve its
+        # current IP by sweeping the local subnet(s) and reading the ARP
+        # table (see the big comment above _find_ips_by_mac).
+        mac_ip_map = {}
+        sweep_targets = []
+        if cloud_list:
+            found_ids = set((found or {}).keys())
+            for dev in cloud_list:
+                if dev.get("id") not in found_ids and dev.get("mac"):
+                    sweep_targets.append(dev["mac"])
+        if sweep_targets:
+            _set_job(progress="Sweeping local subnet(s) for %d device(s) by MAC address..." % len(sweep_targets))
+            try:
+                mac_ip_map = _find_ips_by_mac(sweep_targets)
+            except Exception as e:  # noqa: BLE001
+                _set_job(cloud_error=(SCAN_JOB.get("cloud_error") or "") +
+                          " MAC sweep failed: %s" % e)
+
         _set_job(progress="Merging results...")
-        merged = _merge_and_store(found, cloud_list)
+        merged, matched_by_sweep = _merge_and_store(found, cloud_list, mac_ip_map)
 
         _set_job(
             running=False,
             progress="Done",
             result={
                 "found_on_lan": len(found or {}),
+                "found_by_mac_sweep": len(matched_by_sweep),
                 "from_cloud": len(cloud_list),
                 "total_known": len(merged),
             },

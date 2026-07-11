@@ -4,19 +4,28 @@ A one-page, TasmoAdmin-style dashboard for finding and controlling local
 Tuya switches — built for people using the **Tuya Local** integration in
 Home Assistant who want an easy way to discover device IPs and local keys.
 
-It combines two discovery methods:
+It combines three discovery methods:
 
 - **LAN scan** — listens for the UDP broadcasts Tuya devices send on
   your local network (ports 6666/6667/7000) to find IP, device ID and
   protocol version.
 - **Tuya Cloud API** — using your Tuya IoT Platform Access ID/Secret,
-  pulls your full device list (names, categories, and local_keys) and
-  matches it against what's on the LAN.
+  pulls your full device list (names, categories, MAC addresses, and
+  local_keys) and matches it against what's on the LAN.
+- **MAC/ARP sweep** — for any device the Cloud API knows about (including
+  its MAC) but the broadcast scan missed this round, sweeps your local
+  subnet(s) on Tuya's local port (6668) and cross-references your
+  machine's ARP table for that MAC to resolve its current IP. This is
+  the closest generic equivalent to "ask the router's DHCP leases for
+  this MAC" — real DHCP lease tables are router/vendor-specific and not
+  something a client tool can query universally, but ARP is the same
+  IP&harr;MAC mapping, kept locally by every OS, and doesn't need router
+  access or extra privileges to read.
 
-One click ("Sync devices") runs both and merges the results, so you get
-IP + local_key + version for every switch in one table — everything
-Home Assistant's Tuya Local integration needs, and enough to flip
-switches on/off right from this page.
+One click ("Sync devices") runs all three and merges the results, so you
+get IP + local_key + version + MAC for every switch in one table —
+everything Home Assistant's Tuya Local integration needs, and enough to
+flip switches on/off right from this page.
 
 ## Important: this must run on your home LAN
 
@@ -96,10 +105,20 @@ for each switch.
 
 - Not every Tuya device broadcasts continuously, and some protocol 3.4/3.5
   devices are quieter — if a device doesn't show up, try Sync again, or
-  check the device is on and connected to Wi-Fi.
+  check the device is on and connected to Wi-Fi. The MAC/ARP sweep (see
+  above) usually catches these on the next sync anyway, as long as the
+  Cloud API already knows the device's MAC.
 - If a device is missing from the LAN scan but is in your Cloud account,
   it'll still show up in the table (with its name/key) but marked
-  Offline / no IP, until it's seen on the network.
+  Offline / no IP, until it's seen on the network (by broadcast or sweep).
+- The MAC/ARP sweep only sees your machine's directly-connected subnet(s)
+  — same constraint as the broadcast scan, and same reason this app needs
+  to run on your LAN rather than a remote server. It needs the `psutil`
+  dependency to list local network interfaces, and reads either
+  `/proc/net/arp` (Linux/Docker) or the `arp -a` command (macOS) — no root
+  or raw sockets required. A strict local firewall or endpoint security
+  tool that blocks outbound connections to your own subnet could suppress
+  it; the LAN broadcast scan and manual IP entry both still work either way.
 - This is an independent tool built on the [tinytuya](https://github.com/jasonacox/tinytuya)
   library; it is not affiliated with Tuya, Home Assistant, or TasmoAdmin.
 
