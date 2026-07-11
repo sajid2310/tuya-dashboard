@@ -471,6 +471,10 @@ def _run_scan(scantime, use_cloud, forcescan):
             poll=False,
             forcescan=bool(forcescan and cloud_list),
             verbose=False,
+            # This runs headless (no terminal attached), so tinytuya must
+            # never fall back to input() to ask "scan this network?" /
+            # "poll local devices?" - that raises EOFError with no stdin.
+            assume_yes=True,
         )
 
         # MAC/ARP sweep: for any cloud-known device with a MAC address that
