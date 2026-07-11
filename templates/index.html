@@ -56,11 +56,21 @@
       <section class="stats-grid" id="statsGrid"></section>
 
       <section class="filter-row">
-        <div class="filter-chips" id="filterChips">
-          <button class="chip active" data-filter="all">All devices</button>
-          <button class="chip" data-filter="online">Online</button>
-          <button class="chip" data-filter="offline">Offline</button>
-          <button class="chip" data-filter="nokey">Missing key</button>
+        <div class="filter-chips-wrap">
+          <div class="filter-chips" id="filterChips">
+            <button class="chip status-chip active" data-filter="all">All devices</button>
+            <button class="chip status-chip" data-filter="online">Online</button>
+            <button class="chip status-chip" data-filter="offline">Offline</button>
+            <button class="chip status-chip" data-filter="nokey">Missing key</button>
+          </div>
+          <div class="filter-chips" id="typeFilterChips">
+            <button class="chip type-chip active" data-type-filter="all">All types</button>
+            <button class="chip type-chip" data-type-filter="switch">Switches</button>
+            <button class="chip type-chip" data-type-filter="plug">Plugs</button>
+            <button class="chip type-chip" data-type-filter="light">Lights</button>
+            <button class="chip type-chip" data-type-filter="fan">Fans</button>
+            <button class="chip type-chip" data-type-filter="other">Other</button>
+          </div>
         </div>
         <div class="result-count" id="resultCount"></div>
       </section>
@@ -77,7 +87,7 @@
                 <th>Local Key</th>
                 <th class="sortable" data-sort="version"><span class="th-inner">Version <span class="icon-slot" data-icon="chevronDown"></span></span></th>
                 <th class="sortable" data-sort="category"><span class="th-inner">Category <span class="icon-slot" data-icon="chevronDown"></span></span></th>
-                <th>Control</th>
+                <th>Controls</th>
                 <th></th>
               </tr>
             </thead>
@@ -154,6 +164,36 @@
       <button id="btnEditDelete" class="btn danger">Delete device</button>
       <button id="btnEditCancel" class="btn">Cancel</button>
       <button id="btnEditSave" class="btn primary">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Diagnose (troubleshoot) modal -->
+<div id="diagnoseModal" class="modal hidden">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2>Troubleshoot device</h2>
+      <button class="modal-close" id="btnDiagClose"><span class="icon-slot" data-icon="x"></span></button>
+    </div>
+    <p class="hint" id="diagDeviceName"></p>
+    <p class="hint">Checks local (LAN) and Tuya Cloud connectivity independently, so you know whether an
+      issue is on your local network or on Tuya's side.</p>
+    <div class="diag-grid" id="diagGrid">
+      <div class="diag-card" id="diagLocalCard">
+        <div class="diag-card-head"><span class="icon-slot" data-icon="plug"></span><span>Local (LAN)</span></div>
+        <div class="diag-status checking" id="diagLocalStatus">Checking…</div>
+        <div class="diag-detail" id="diagLocalDetail"></div>
+      </div>
+      <div class="diag-card" id="diagCloudCard">
+        <div class="diag-card-head"><span class="icon-slot" data-icon="cloud"></span><span>Tuya Cloud</span></div>
+        <div class="diag-status checking" id="diagCloudStatus">Checking…</div>
+        <div class="diag-detail" id="diagCloudDetail"></div>
+      </div>
+    </div>
+    <div class="hint diag-hint" id="diagHint"></div>
+    <div class="modal-actions">
+      <button id="btnDiagRerun" class="btn">Run again</button>
+      <button id="btnDiagCloseBtn" class="btn primary">Close</button>
     </div>
   </div>
 </div>

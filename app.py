@@ -194,6 +194,75 @@ REGIONS = {
 }
 
 # ---------------------------------------------------------------------------
+# Device "type" classification (switch / plug / light / fan / other) and the
+# control layout each type gets in the UI. A single-gang switch just needs
+# one on/off toggle, but a fan needs a power toggle plus a speed control,
+# and a multi-gang wall switch/power-strip needs one toggle per gang (DP) -
+# not one generic toggle for the whole device.
+# ---------------------------------------------------------------------------
+CATEGORY_TYPES = {
+    "kg": "switch",          # wall switch (incl. multi-gang)
+    "tgkg": "switch",        # touch switch
+    "tdq": "switch",         # circuit breaker / switch
+    "cz": "plug",            # socket / plug
+    "pc": "plug",            # power strip
+    "insert_switch": "plug",
+    "dj": "light",           # light
+    "dc": "light",           # light strip
+    "dd": "light",           # LED strip light
+    "xdd": "light",          # ceiling light
+    "fs": "fan",             # fan
+    "fsd": "fan",            # fan with light
+}
+
+# Gang switches/plugs conventionally use boolean DPs "1".."6" for each
+# on/off channel; we detect how many are actually present per-device from
+# the last known DP state rather than assuming a fixed count. Fan power/
+# speed DPs follow tinytuya/Tuya's common convention (overridable by
+# editing switch_dp if a specific device differs).
+GANG_SWITCH_DPS = [str(n) for n in range(1, 7)]  # "1".."6"
+FAN_SWITCH_DP = "1"
+FAN_SPEED_DP = "3"
+
+
+def _device_type(entry):
+    cat = (entry.get("category") or "").lower()
+    return CATEGORY_TYPES.get(cat, "other")
+
+
+def _controls_for_entry(entry):
+    """Describe what controls the UI should render for a device: a list of
+    {"type": "toggle"|"stepper", "dp": "...", "label": "..."} dicts.
+
+    Uses last_dps (populated by a status poll, either right after Sync or
+    on-demand) to detect how many gangs a switch/plug actually has, and
+    whether a fan reports a speed DP. Falls back to a single generic
+    toggle on switch_dp if we don't have DP data yet (e.g. before the
+    first poll), so the control still works."""
+    dtype = _device_type(entry)
+    dps = entry.get("last_dps") or {}
+
+    if dtype == "fan":
+        controls = [{"type": "toggle", "dp": FAN_SWITCH_DP, "label": "Power"}]
+        if FAN_SPEED_DP in dps:
+            controls.append({"type": "stepper", "dp": FAN_SPEED_DP, "label": "Speed"})
+        return controls
+
+    if dtype in ("switch", "plug"):
+        gangs = [dp for dp in GANG_SWITCH_DPS if isinstance(dps.get(dp), bool)]
+        if gangs:
+            multi = len(gangs) > 1
+            return [{"type": "toggle", "dp": dp, "label": ("Gang %s" % dp) if multi else "Power"}
+                    for dp in gangs]
+        default_dp = str(entry.get("switch_dp") or "1")
+        return [{"type": "toggle", "dp": default_dp, "label": "Power"}]
+
+    # light / other: single generic toggle
+    default_dp = str(entry.get("switch_dp") or "1")
+    return [{"type": "toggle", "dp": default_dp, "label": "Power"}]
+
+
+# ---------------------------------------------------------------------------
 # MAC / ARP resolution ("DHCP-lease-lookup equivalent")
 #
 # Real DNS (nslookup) has nothing to resolve here - IoT devices don't have
@@ -432,6 +501,41 @@ def _merge_and_store(scanned_by_id, cloud_list, mac_ip_map=None):
     return store, matched_by_sweep
 
 
+def _poll_devices_for_dps(store, dev_ids, max_workers=8, timeout=3):
+    """Best-effort: fetch current DP state for each device right after a
+    sync, so the dashboard immediately knows how many gangs a switch has,
+    whether a fan reports a speed DP, etc. instead of waiting for the user
+    to click into each device individually. Per-device failures are
+    silently ignored - that device just keeps its previous last_dps (or
+    none) and the UI falls back to a single generic toggle for it."""
+    def _poll_one(dev_id):
+        entry = store.get(dev_id)
+        if not entry or not entry.get("ip") or not entry.get("key"):
+            return
+        try:
+            version = float(entry.get("version") or 3.3)
+        except (TypeError, ValueError):
+            version = 3.3
+        try:
+            client = tinytuya.OutletDevice(
+                dev_id=entry["id"],
+                address=entry.get("ip"),
+                local_key=entry.get("key", ""),
+                version=version,
+                connection_timeout=timeout,
+            )
+            client.set_socketPersistent(False)
+            result = client.status()
+            if isinstance(result, dict) and "dps" in result:
+                entry["last_dps"] = result["dps"]
+        except Exception:  # noqa: BLE001
+            pass
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as ex:
+        list(ex.map(_poll_one, dev_ids))
+    save_devices(store)
+
+
 def _run_scan(scantime, use_cloud, forcescan):
     try:
         _set_job(running=True, progress="Starting scan...", error=None,
@@ -518,6 +622,16 @@ def _run_scan(scantime, use_cloud, forcescan):
 
         _set_job(progress="Merging results...")
         merged, matched_by_sweep = _merge_and_store(found, cloud_list, mac_ip_map)
+
+        # Poll each device we can currently reach for its live DP state, so
+        # the dashboard knows right away how many gangs a switch/plug has
+        # and whether a fan reports a speed DP - without the user needing
+        # to click "refresh" on every device individually first.
+        pollable = [dev_id for dev_id in (set((found or {}).keys()) | matched_by_sweep)
+                    if merged.get(dev_id, {}).get("ip") and merged.get(dev_id, {}).get("key")]
+        if pollable:
+            _set_job(progress="Polling %d device(s) for their current state..." % len(pollable))
+            _poll_devices_for_dps(merged, pollable)
 
         _set_job(
             running=False,
@@ -607,7 +721,13 @@ def api_config_clear():
 @app.route("/api/devices", methods=["GET"])
 def api_devices_list():
     store = load_devices()
-    return jsonify(sorted(store.values(), key=lambda d: (d.get("name") or "").lower()))
+    out = []
+    for d in store.values():
+        d = dict(d)
+        d["type"] = _device_type(d)
+        d["controls"] = _controls_for_entry(d)
+        out.append(d)
+    return jsonify(sorted(out, key=lambda d: (d.get("name") or "").lower()))
 
 
 @app.route("/api/devices/<dev_id>", methods=["DELETE"])
@@ -734,6 +854,95 @@ def api_device_toggle(dev_id):
         return jsonify({"ok": True, "dps": entry["last_dps"]})
     except Exception as e:  # noqa: BLE001
         return jsonify({"error": str(e)}), 502
+
+
+@app.route("/api/devices/<dev_id>/diagnose", methods=["POST"])
+def api_device_diagnose(dev_id):
+    """Troubleshooting helper: independently checks (1) whether we can
+    reach the device directly on the LAN, and (2) whether the Tuya Cloud
+    platform currently sees it as online. These are genuinely independent
+    signals - a device can be perfectly reachable locally while Tuya's
+    cloud has lost track of it (or vice versa) - so knowing which one is
+    failing tells you whether to go troubleshoot your local network/IP, or
+    the device's WiFi/internet connection to Tuya's servers."""
+    store = load_devices()
+    entry = store.get(dev_id)
+    if not entry:
+        return jsonify({"error": "unknown device"}), 404
+
+    result = {
+        "checked_at": time.time(),
+        "local": {"ok": False, "detail": None},
+        "cloud": {"ok": False, "detail": None},
+    }
+
+    # --- Local check: talk to the device directly over the LAN ---------
+    if not entry.get("ip") or not entry.get("key"):
+        result["local"]["detail"] = "No IP/local_key on file - run a sync, or edit the device manually."
+    else:
+        try:
+            client = _get_device_client(entry)
+            status = client.status()
+            if isinstance(status, dict) and status.get("Error"):
+                result["local"]["detail"] = status.get("Error")
+            elif isinstance(status, dict) and "dps" in status:
+                result["local"]["ok"] = True
+                result["local"]["detail"] = "Responded locally on %s" % entry.get("ip")
+                entry["online"] = True
+                entry["last_dps"] = status.get("dps", entry.get("last_dps", {}))
+                entry["last_seen"] = time.time()
+            else:
+                result["local"]["detail"] = "Unexpected response: %r" % (status,)
+        except Exception as e:  # noqa: BLE001
+            result["local"]["detail"] = str(e)
+
+    # --- Cloud check: ask the Tuya IoT Platform if it thinks the device
+    #     is online. This is what your Tuya/Smart Life app and any cloud
+    #     integration sees - independent of whether we can reach it. ----
+    cfg = load_config()
+    if not (cfg.get("access_id") and cfg.get("access_secret")):
+        result["cloud"]["detail"] = "No Tuya Cloud credentials configured."
+    else:
+        try:
+            cloud = tinytuya.Cloud(
+                apiRegion=cfg.get("region", "us"),
+                apiKey=cfg["access_id"],
+                apiSecret=cfg["access_secret"],
+            )
+            status = cloud.getconnectstatus(dev_id)
+            if isinstance(status, dict) and status.get("Error"):
+                result["cloud"]["detail"] = status.get("Error")
+            else:
+                online = bool(status)
+                result["cloud"]["ok"] = online
+                result["cloud"]["detail"] = "Cloud reports device online" if online else "Cloud reports device offline"
+        except Exception as e:  # noqa: BLE001
+            result["cloud"]["detail"] = str(e)
+
+    # --- Plain-English verdict, so the UI doesn't make the user infer it
+    if result["local"]["ok"] and result["cloud"]["ok"]:
+        result["verdict"] = "both_ok"
+        result["hint"] = "Both local and cloud connectivity are working - the device itself is healthy."
+    elif result["local"]["ok"] and not result["cloud"]["ok"]:
+        result["verdict"] = "cloud_issue"
+        result["hint"] = ("Local control works, but Tuya's cloud doesn't see the device as online. "
+                           "This looks like a cloud/internet issue on the device's side (e.g. it lost "
+                           "its WiFi/internet route to Tuya's servers) - not a problem with this dashboard.")
+    elif not result["local"]["ok"] and result["cloud"]["ok"]:
+        result["verdict"] = "local_issue"
+        result["hint"] = ("Tuya's cloud sees the device as online, but we can't reach it locally. "
+                           "This looks like a local-network issue - try Sync to refresh its IP, confirm "
+                           "this machine and the device are on the same subnet/VLAN, and check nothing "
+                           "is blocking port 6668.")
+    else:
+        result["verdict"] = "both_down"
+        result["hint"] = ("Neither local nor cloud connectivity is working - the device is likely "
+                           "powered off, disconnected from WiFi, or has an outdated local_key.")
+
+    entry["diag"] = result
+    store[dev_id] = entry
+    save_devices(store)
+    return jsonify(result)
 
 
 # ---------------------------------------------------------------------------

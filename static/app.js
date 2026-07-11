@@ -25,6 +25,8 @@ const ICONS = {
   toggleSwitch: `<svg class="i" viewBox="0 0 24 24"><rect x="1" y="5" width="22" height="14" rx="7"/><circle cx="16" cy="12" r="3"/></svg>`,
   bulb: `<svg class="i" viewBox="0 0 24 24"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.2 1 2.05V17h6v-.25c0-.85.4-1.55 1-2.05A7 7 0 0 0 12 2z"/></svg>`,
   boxes: `<svg class="i xl" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>`,
+  fan: `<svg class="i" viewBox="0 0 24 24"><path d="M12 12c0-3 2-8 5-8s3 5 0 8"/><path d="M12 12c3 0 8 2 8 5s-5 3-8 0"/><path d="M12 12c0 3-2 8-5 8s-3-5 0-8"/><path d="M12 12c-3 0-8-2-8-5s5-3 8 0"/><circle cx="12" cy="12" r="1.6"/></svg>`,
+  pulse: `<svg class="i" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`,
 };
 
 function icon(name, extraClass) {
@@ -42,10 +44,15 @@ function mountIcons(root) {
   });
 }
 
-function categoryIcon(cat) {
-  if (cat === "kg") return "toggleSwitch";
-  if (cat === "dj") return "bulb";
-  return "plug";
+function typeIcon(type) {
+  if (type === "fan") return "fan";
+  if (type === "switch") return "toggleSwitch";
+  if (type === "light") return "bulb";
+  return "plug"; // plug + other
+}
+
+function typeLabel(type) {
+  return { switch: "Switch", plug: "Plug", light: "Light", fan: "Fan", other: "Other" }[type] || "Other";
 }
 
 // ---------------------------------------------------------------------
@@ -57,6 +64,7 @@ let pollTimer = null;
 let state = {
   search: "",
   filter: "all",
+  typeFilter: "all",
   sortKey: "name",
   sortDir: "asc",
   view: localStorage.getItem("tuya_dashboard_view") || "table",
@@ -118,6 +126,10 @@ function applyFilters(list) {
   if (state.filter === "online") out = out.filter((d) => d.online);
   else if (state.filter === "offline") out = out.filter((d) => !d.online);
   else if (state.filter === "nokey") out = out.filter((d) => !d.key);
+
+  if (state.typeFilter && state.typeFilter !== "all") {
+    out = out.filter((d) => (d.type || "other") === state.typeFilter);
+  }
 
   const key = state.sortKey;
   const dir = state.sortDir === "asc" ? 1 : -1;
@@ -181,19 +193,31 @@ function keyCell(d) {
   </div>`;
 }
 
-function controlToggle(d) {
-  const dp = d.switch_dp || "1";
+function controlsCell(d) {
+  const controls = (d.controls && d.controls.length) ? d.controls : [{ type: "toggle", dp: d.switch_dp || "1", label: "Power" }];
   const dps = d.last_dps || {};
-  const on = dps[dp] === true;
-  const disabled = !(d.ip && d.key) ? "disabled" : "";
-  return `<button class="toggle ${on ? "on" : ""}" ${disabled}
-            data-toggle="${d.id}" data-dp="${dp}"
-            title="${d.ip && d.key ? "Toggle switch" : "Missing IP/local key"}"></button>`;
+  const reachable = !!(d.ip && d.key);
+  return `<div class="controls-cell">` + controls.map((c) => {
+    if (c.type === "stepper") {
+      const val = dps[c.dp];
+      const shown = (val === undefined || val === null) ? "—" : escapeHtml(String(val));
+      return `<div class="control-stepper" title="${escapeHtml(c.label)}">
+        <span class="control-label">${escapeHtml(c.label)}</span>
+        <button class="stepper-btn" data-step="-1" data-dp="${c.dp}" data-step-id="${d.id}" ${reachable ? "" : "disabled"}>−</button>
+        <span class="stepper-val mono">${shown}</span>
+        <button class="stepper-btn" data-step="1" data-dp="${c.dp}" data-step-id="${d.id}" ${reachable ? "" : "disabled"}>+</button>
+      </div>`;
+    }
+    const on = dps[c.dp] === true;
+    return `<button class="toggle ${on ? "on" : ""}" ${reachable ? "" : "disabled"}
+              data-toggle="${d.id}" data-dp="${c.dp}"
+              title="${reachable ? c.label : "Missing IP/local key"}"></button>`;
+  }).join("") + `</div>`;
 }
 
 function nameCell(d, size) {
   return `<div class="name-cell">
-    <span class="avatar" style="${size ? `width:${size}px;height:${size}px` : ""}">${icon(categoryIcon(d.category))}</span>
+    <span class="avatar" style="${size ? `width:${size}px;height:${size}px` : ""}">${icon(typeIcon(d.type))}</span>
     <div class="name-text">
       <span class="primary">${escapeHtml(d.name || d.id)}</span>
       <span class="secondary mono">${escapeHtml(d.id)}</span>
@@ -211,10 +235,11 @@ function renderTable(list) {
       <td class="mono">${escapeHtml(d.id)}</td>
       <td>${keyCell(d)}</td>
       <td>${d.version ? `<span class="badge">${escapeHtml(d.version)}</span>` : "—"}</td>
-      <td>${escapeHtml(d.category || d.product_name || "—")}</td>
-      <td>${controlToggle(d)}</td>
+      <td><span class="badge type-badge type-${d.type || "other"}">${typeLabel(d.type)}</span> ${escapeHtml(d.category || d.product_name || "")}</td>
+      <td>${controlsCell(d)}</td>
       <td>
         <div class="row-actions">
+          <button class="icon-btn" data-diagnose="${d.id}" title="Troubleshoot (local vs cloud)">${icon("pulse")}</button>
           <button class="icon-btn" data-edit="${d.id}" title="Edit">${icon("edit")}</button>
           <button class="icon-btn" data-refresh="${d.id}" title="Refresh status">${icon("refresh")}</button>
         </div>
@@ -234,16 +259,18 @@ function renderGrid(list) {
         ${statusPill(d)}
       </div>
       <div class="device-card-meta">
+        <div class="row"><span>Type</span><span class="badge type-badge type-${d.type || "other"}">${typeLabel(d.type)}</span></div>
         <div class="row"><span>IP</span><span class="mono">${escapeHtml(d.ip || "—")}</span></div>
         <div class="row"><span>Version</span><span>${d.version ? `<span class="badge">${escapeHtml(d.version)}</span>` : "—"}</span></div>
         <div class="row"><span>Local key</span>${keyCell(d)}</div>
       </div>
+      <div class="device-card-controls">${controlsCell(d)}</div>
       <div class="device-card-footer">
         <div class="row-actions">
+          <button class="icon-btn" data-diagnose="${d.id}" title="Troubleshoot (local vs cloud)">${icon("pulse")}</button>
           <button class="icon-btn" data-edit="${d.id}" title="Edit">${icon("edit")}</button>
           <button class="icon-btn" data-refresh="${d.id}" title="Refresh status">${icon("refresh")}</button>
         </div>
-        ${controlToggle(d)}
       </div>
     </div>
   `).join("");
@@ -456,6 +483,56 @@ async function deleteEditingDevice() {
 }
 
 // ---------------------------------------------------------------------
+// Diagnose (troubleshoot) modal — independently checks local (LAN) vs
+// Tuya Cloud connectivity so you know which side an issue is on.
+// ---------------------------------------------------------------------
+let diagDeviceId = null;
+
+function setDiagSide(key, side) {
+  const statusEl = $(`#diag${key}Status`);
+  const detailEl = $(`#diag${key}Detail`);
+  if (!side) {
+    statusEl.textContent = "Checking…";
+    statusEl.className = "diag-status checking";
+    detailEl.textContent = "";
+    return;
+  }
+  statusEl.textContent = side.ok ? "Working" : "Not reachable";
+  statusEl.className = "diag-status " + (side.ok ? "ok" : "fail");
+  detailEl.textContent = side.detail || "";
+}
+
+async function openDiagnose(id) {
+  diagDeviceId = id;
+  const d = devices.find((x) => x.id === id);
+  $("#diagDeviceName").textContent = d ? `${d.name || d.id} (${d.id})` : id;
+  setDiagSide("Local", null);
+  setDiagSide("Cloud", null);
+  $("#diagHint").textContent = "";
+  $("#diagnoseModal").classList.remove("hidden");
+  await runDiagnose();
+}
+
+async function runDiagnose() {
+  if (!diagDeviceId) return;
+  $("#btnDiagRerun").disabled = true;
+  setDiagSide("Local", null);
+  setDiagSide("Cloud", null);
+  $("#diagHint").textContent = "";
+  try {
+    const result = await api(`/api/devices/${encodeURIComponent(diagDeviceId)}/diagnose`, { method: "POST" });
+    setDiagSide("Local", result.local);
+    setDiagSide("Cloud", result.cloud);
+    $("#diagHint").textContent = result.hint || "";
+    await loadDevices();
+  } catch (e) {
+    $("#diagHint").textContent = "Diagnostic failed to run: " + e.message;
+  } finally {
+    $("#btnDiagRerun").disabled = false;
+  }
+}
+
+// ---------------------------------------------------------------------
 // Theme + view persistence
 // ---------------------------------------------------------------------
 function applyTheme(theme) {
@@ -500,6 +577,10 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#btnEditClose").addEventListener("click", () => $("#editModal").classList.add("hidden"));
   $("#btnEditDelete").addEventListener("click", deleteEditingDevice);
 
+  $("#btnDiagRerun").addEventListener("click", runDiagnose);
+  $("#btnDiagClose").addEventListener("click", () => $("#diagnoseModal").classList.add("hidden"));
+  $("#btnDiagCloseBtn").addEventListener("click", () => $("#diagnoseModal").classList.add("hidden"));
+
   $("#themeToggle").addEventListener("click", () => {
     const cur = document.documentElement.getAttribute("data-theme");
     applyTheme(cur === "dark" ? "light" : "dark");
@@ -509,10 +590,18 @@ document.addEventListener("DOMContentLoaded", () => {
     b.addEventListener("click", () => applyView(b.getAttribute("data-view")));
   });
 
-  document.querySelectorAll(".chip").forEach((chip) => {
+  document.querySelectorAll(".status-chip").forEach((chip) => {
     chip.addEventListener("click", () => {
       state.filter = chip.getAttribute("data-filter");
-      document.querySelectorAll(".chip").forEach((c) => c.classList.toggle("active", c === chip));
+      document.querySelectorAll(".status-chip").forEach((c) => c.classList.toggle("active", c === chip));
+      render();
+    });
+  });
+
+  document.querySelectorAll(".type-chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      state.typeFilter = chip.getAttribute("data-type-filter");
+      document.querySelectorAll(".type-chip").forEach((c) => c.classList.toggle("active", c === chip));
       render();
     });
   });
@@ -568,6 +657,11 @@ document.addEventListener("DOMContentLoaded", () => {
       openEdit(editBtn.getAttribute("data-edit"));
       return;
     }
+    const diagBtn = ev.target.closest("[data-diagnose]");
+    if (diagBtn) {
+      openDiagnose(diagBtn.getAttribute("data-diagnose"));
+      return;
+    }
     const refreshBtn = ev.target.closest("[data-refresh]");
     if (refreshBtn) {
       const id = refreshBtn.getAttribute("data-refresh");
@@ -597,6 +691,29 @@ document.addEventListener("DOMContentLoaded", () => {
         toast("Toggle failed: " + e.message, "error");
       } finally {
         toggleBtn.disabled = false;
+      }
+      return;
+    }
+    const stepBtn = ev.target.closest("[data-step]");
+    if (stepBtn && !stepBtn.disabled) {
+      const id = stepBtn.getAttribute("data-step-id");
+      const dp = stepBtn.getAttribute("data-dp");
+      const delta = parseInt(stepBtn.getAttribute("data-step"), 10);
+      const d = devices.find((x) => x.id === id);
+      const cur = d && d.last_dps ? d.last_dps[dp] : undefined;
+      const curNum = typeof cur === "number" ? cur : parseInt(cur, 10);
+      const next = !isNaN(curNum) ? Math.max(1, Math.min(100, curNum + delta)) : (delta > 0 ? 2 : 1);
+      stepBtn.disabled = true;
+      try {
+        await api(`/api/devices/${encodeURIComponent(id)}/set`, {
+          method: "POST",
+          body: JSON.stringify({ dp, value: next }),
+        });
+        await loadDevices();
+      } catch (e) {
+        toast("Failed to change speed: " + e.message, "error");
+      } finally {
+        stepBtn.disabled = false;
       }
       return;
     }
