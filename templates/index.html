@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tuya Local Dashboard</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header>
+  <h1>🔌 Tuya Local Dashboard</h1>
+  <div class="header-actions">
+    <button id="btnSync" class="btn primary">Sync devices</button>
+    <button id="btnSettings" class="btn">Cloud API settings</button>
+  </div>
+</header>
+
+<div id="scanBanner" class="banner hidden"></div>
+
+<main>
+  <section id="summary" class="summary hidden"></section>
+
+  <table id="deviceTable">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Status</th>
+        <th>IP</th>
+        <th>Device ID</th>
+        <th>Local Key</th>
+        <th>Version</th>
+        <th>Category</th>
+        <th>Control</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="deviceTableBody">
+      <tr id="emptyRow"><td colspan="9" class="empty">No devices yet. Click "Sync devices" to scan your LAN and (optionally) your Tuya Cloud account.</td></tr>
+    </tbody>
+  </table>
+</main>
+
+<!-- Settings modal -->
+<div id="settingsModal" class="modal hidden">
+  <div class="modal-card">
+    <h2>Tuya Cloud API credentials</h2>
+    <p class="hint">
+      From the <a href="https://iot.tuya.com" target="_blank" rel="noopener">Tuya IoT Platform</a>,
+      create a Cloud project and copy its <strong>Access ID/Client ID</strong> and
+      <strong>Access Secret/Client Secret</strong> below. Link your Tuya (Smart Life) app
+      account to the project under "Devices &rarr; Link Tuya App Account" so your devices show up.
+      This lets Sync pull device names and local keys automatically instead of you finding them by hand.
+      Credentials are stored only in this app's local <code>data/config.json</code> file.
+    </p>
+    <label>Region
+      <select id="cfgRegion"></select>
+    </label>
+    <label>Access ID / Client ID
+      <input id="cfgAccessId" type="text" autocomplete="off" placeholder="e.g. abcd1234efgh5678">
+    </label>
+    <label>Access Secret / Client Secret
+      <input id="cfgAccessSecret" type="password" autocomplete="off" placeholder="leave blank to keep existing">
+    </label>
+    <div id="cfgCurrent" class="hint"></div>
+    <div class="modal-actions">
+      <button id="btnCfgClear" class="btn danger">Clear</button>
+      <button id="btnCfgCancel" class="btn">Cancel</button>
+      <button id="btnCfgSave" class="btn primary">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit device modal -->
+<div id="editModal" class="modal hidden">
+  <div class="modal-card">
+    <h2>Edit device</h2>
+    <p class="hint">Use this to manually fix a device's IP, or paste in a local_key you already have (e.g. from the Tuya IoT Platform "Devices" tab, or a previous devices.json).</p>
+    <input type="hidden" id="editId">
+    <label>Name <input id="editName" type="text"></label>
+    <label>IP address <input id="editIp" type="text" placeholder="192.168.1.50"></label>
+    <label>Local key <input id="editKey" type="text"></label>
+    <label>Protocol version
+      <select id="editVersion">
+        <option value="3.1">3.1</option>
+        <option value="3.2">3.2</option>
+        <option value="3.3">3.3</option>
+        <option value="3.4">3.4</option>
+        <option value="3.5">3.5</option>
+      </select>
+    </label>
+    <label>Switch DP <input id="editDp" type="text" placeholder="1"></label>
+    <div class="modal-actions">
+      <button id="btnEditDelete" class="btn danger">Delete device</button>
+      <button id="btnEditCancel" class="btn">Cancel</button>
+      <button id="btnEditSave" class="btn primary">Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
