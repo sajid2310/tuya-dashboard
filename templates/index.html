@@ -1,56 +1,114 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Tuya Local Dashboard</title>
+<title>Tuya Dashboard</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-<header>
-  <h1>🔌 Tuya Local Dashboard</h1>
-  <div class="header-actions">
-    <button id="btnSync" class="btn primary">Sync devices</button>
-    <button id="btnSettings" class="btn">Cloud API settings</button>
+<div class="app-shell">
+
+  <aside class="sidebar" id="sidebar">
+    <div>
+      <div class="sidebar-top">
+        <div class="brand">
+          <span class="brand-mark">TD</span>
+          <div class="brand-text">
+            <span class="brand-name">Tuya Dashboard</span>
+            <span class="brand-sub">Local device manager</span>
+          </div>
+        </div>
+      </div>
+      <nav class="sidebar-nav">
+        <a class="nav-item active" href="#" id="navDevices" data-icon-prefix="grid">Devices</a>
+        <button class="nav-item" id="navCloudSettings" data-icon-prefix="cloud">Cloud API settings</button>
+      </nav>
+    </div>
+    <div class="sidebar-bottom">
+      <a class="sidebar-link" href="https://github.com/jasonacox/tinytuya" target="_blank" rel="noopener" data-icon-prefix="external">Built on tinytuya</a>
+      <button class="sidebar-link" id="themeToggle" data-icon-prefix="moon"><span id="themeLabel">Dark mode</span></button>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div>
+        <h1>Devices</h1>
+        <p class="topbar-sub" id="lastSynced">Not synced yet</p>
+      </div>
+      <div class="topbar-actions">
+        <div class="search-box">
+          <span class="icon-slot" data-icon="search"></span>
+          <input id="searchInput" type="text" placeholder="Search name, IP, ID…">
+        </div>
+        <div class="view-toggle">
+          <button class="view-btn active" data-view="table" title="Table view"><span class="icon-slot" data-icon="list"></span></button>
+          <button class="view-btn" data-view="grid" title="Card view"><span class="icon-slot" data-icon="grid"></span></button>
+        </div>
+        <button id="btnSync" class="btn primary"><span class="icon-slot" data-icon="sync"></span>Sync devices</button>
+      </div>
+    </header>
+
+    <div id="scanBanner" class="banner hidden"></div>
+
+    <main class="content">
+      <section class="stats-grid" id="statsGrid"></section>
+
+      <section class="filter-row">
+        <div class="filter-chips" id="filterChips">
+          <button class="chip active" data-filter="all">All devices</button>
+          <button class="chip" data-filter="online">Online</button>
+          <button class="chip" data-filter="offline">Offline</button>
+          <button class="chip" data-filter="nokey">Missing key</button>
+        </div>
+        <div class="result-count" id="resultCount"></div>
+      </section>
+
+      <section class="devices-panel">
+        <div id="tableView" class="view-panel">
+          <table id="deviceTable">
+            <thead>
+              <tr>
+                <th class="sortable" data-sort="name"><span class="th-inner">Name <span class="icon-slot" data-icon="chevronDown"></span></span></th>
+                <th class="sortable" data-sort="online"><span class="th-inner">Status <span class="icon-slot" data-icon="chevronDown"></span></span></th>
+                <th class="sortable" data-sort="ip"><span class="th-inner">IP <span class="icon-slot" data-icon="chevronDown"></span></span></th>
+                <th class="sortable" data-sort="id"><span class="th-inner">Device ID <span class="icon-slot" data-icon="chevronDown"></span></span></th>
+                <th>Local Key</th>
+                <th class="sortable" data-sort="version"><span class="th-inner">Version <span class="icon-slot" data-icon="chevronDown"></span></span></th>
+                <th class="sortable" data-sort="category"><span class="th-inner">Category <span class="icon-slot" data-icon="chevronDown"></span></span></th>
+                <th>Control</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="deviceTableBody"></tbody>
+          </table>
+        </div>
+
+        <div id="gridView" class="view-panel hidden">
+          <div class="device-grid" id="deviceGrid"></div>
+        </div>
+
+        <div id="emptyState" class="empty-state hidden"></div>
+      </section>
+    </main>
   </div>
-</header>
-
-<div id="scanBanner" class="banner hidden"></div>
-
-<main>
-  <section id="summary" class="summary hidden"></section>
-
-  <table id="deviceTable">
-    <thead>
-      <tr>
-        <th>Name</th>
-        <th>Status</th>
-        <th>IP</th>
-        <th>Device ID</th>
-        <th>Local Key</th>
-        <th>Version</th>
-        <th>Category</th>
-        <th>Control</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody id="deviceTableBody">
-      <tr id="emptyRow"><td colspan="9" class="empty">No devices yet. Click "Sync devices" to scan your LAN and (optionally) your Tuya Cloud account.</td></tr>
-    </tbody>
-  </table>
-</main>
+</div>
 
 <!-- Settings modal -->
 <div id="settingsModal" class="modal hidden">
   <div class="modal-card">
-    <h2>Tuya Cloud API credentials</h2>
+    <div class="modal-head">
+      <h2>Tuya Cloud API credentials</h2>
+      <button class="modal-close" id="btnCfgClose"><span class="icon-slot" data-icon="x"></span></button>
+    </div>
     <p class="hint">
       From the <a href="https://iot.tuya.com" target="_blank" rel="noopener">Tuya IoT Platform</a>,
       create a Cloud project and copy its <strong>Access ID/Client ID</strong> and
       <strong>Access Secret/Client Secret</strong> below. Link your Tuya (Smart Life) app
       account to the project under "Devices &rarr; Link Tuya App Account" so your devices show up.
       This lets Sync pull device names and local keys automatically instead of you finding them by hand.
-      Credentials are stored only in this app's local <code>data/config.json</code> file.
+      Credentials are encrypted at rest in this app's local <code>data/config.json</code> file.
     </p>
     <label>Region
       <select id="cfgRegion"></select>
@@ -73,7 +131,10 @@
 <!-- Edit device modal -->
 <div id="editModal" class="modal hidden">
   <div class="modal-card">
-    <h2>Edit device</h2>
+    <div class="modal-head">
+      <h2>Edit device</h2>
+      <button class="modal-close" id="btnEditClose"><span class="icon-slot" data-icon="x"></span></button>
+    </div>
     <p class="hint">Use this to manually fix a device's IP, or paste in a local_key you already have (e.g. from the Tuya IoT Platform "Devices" tab, or a previous devices.json).</p>
     <input type="hidden" id="editId">
     <label>Name <input id="editName" type="text"></label>
