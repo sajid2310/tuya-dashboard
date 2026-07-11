@@ -16,13 +16,19 @@ if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
   exit 0
 fi
 
-if [ ! -d ".venv" ] && ! python3 -c "import flask, tinytuya, cryptography, psutil" >/dev/null 2>&1; then
-  echo "Dependencies look missing - run: pip install -r requirements.txt"
+PYTHON_BIN="python3"
+if [ -x ".venv/bin/python3" ]; then
+  PYTHON_BIN=".venv/bin/python3"
+fi
+
+if ! "$PYTHON_BIN" -c "import flask, tinytuya, cryptography, psutil" >/dev/null 2>&1; then
+  echo "Dependencies look missing. Run ./install_and_run.command, or:"
+  echo "  python3 -m venv .venv && .venv/bin/pip install -r requirements.txt"
   exit 1
 fi
 
 export PORT DATA_DIR
-nohup python3 app.py >> "$LOGFILE" 2>&1 &
+nohup "$PYTHON_BIN" app.py >> "$LOGFILE" 2>&1 &
 echo $! > "$PIDFILE"
 sleep 1
 
