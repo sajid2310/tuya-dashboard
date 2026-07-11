@@ -1,0 +1,15 @@
+services:
+  tuya-dashboard:
+    build: .
+    container_name: tuya-dashboard
+    # Host networking is required so the app can see LAN broadcast/ARP
+    # traffic for device discovery - bridge mode would not work here.
+    network_mode: host
+    environment:
+      - PORT=8080
+      # Set this to a fixed value in production (e.g. `openssl rand -base64 32`)
+      # so restarts don't lose the encryption key for stored credentials.
+      - APP_SECRET_KEY=${APP_SECRET_KEY:-}
+    volumes:
+      - ./data:/data
+    restart: unless-stopped

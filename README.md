@@ -65,20 +65,52 @@ pip install -r requirements.txt
 python app.py
 ```
 
-Then open `http://<this-machine's-ip>:8080`.
+Then open `http://<this-machine's-ip>:8080`. This runs in the foreground
+(Ctrl+C to stop) - useful for a first run so you can see the logs.
+
+**Start / stop / restart / status** (runs it in the background instead,
+with a PID file so you don't have to keep a terminal open):
+
+```bash
+chmod +x start.sh stop.sh restart.sh status.sh   # first time only
+./start.sh      # start in the background
+./status.sh     # check if it's running
+./stop.sh       # stop it
+./restart.sh    # stop + start
+```
+
+Logs go to `data/dashboard.log` (`tail -f data/dashboard.log` to follow
+them). These scripts don't set up "start on boot" by themselves - on
+macOS you'd wrap `start.sh` in a `launchd` agent, on Linux a `systemd`
+service, if you want it to survive a reboot automatically. Ask if you'd
+like one generated for your setup.
 
 ### Option B: Docker
 
-Because discovery needs to see LAN broadcast traffic, run the container
-with **host networking** (bridge mode will not see the broadcasts):
+Because discovery needs to see LAN broadcast traffic, the container must
+use **host networking** (bridge mode will not see the broadcasts). The
+included `docker-compose.yml` already sets this up, along with a
+`restart: unless-stopped` policy so it comes back up after a reboot or
+Docker restart - the closest equivalent to "install as a service":
 
 ```bash
 cd tuya-dashboard
+docker compose up -d      # start (build + run in the background)
+docker compose logs -f    # follow logs
+docker compose down       # stop
+docker compose restart    # restart
+```
+
+Or without Compose:
+
+```bash
 docker build -t tuya-dashboard .
 docker run -d --name tuya-dashboard \
   --network host \
   -v tuya-dashboard-data:/data \
+  --restart unless-stopped \
   tuya-dashboard
+# docker stop tuya-dashboard   /   docker start tuya-dashboard
 ```
 
 Then open `http://<host-ip>:8080` (host networking means it binds
