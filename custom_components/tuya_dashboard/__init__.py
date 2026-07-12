@@ -3,8 +3,18 @@
 Self-contained by design: this file registers the integration's own
 bundled Lovelace panel (served straight from this package's www/ folder)
 rather than depending on a separate community card like flex-table-card,
-and does its own discovery/local-control (rather than depending on
-LocalTuya or any other Tuya integration).
+and does its own discovery (rather than depending on LocalTuya or any
+other Tuya integration).
+
+Inventory + diagnose only - no switch/fan/light entities. This
+integration used to also create control entities, but that meant two
+integrations (this one and e.g. LocalTuya) both holding/opening
+connections to the same physical device, and Tuya's local protocol only
+accepts one active connection per device at a time. If you don't run
+another local-control Tuya integration, control still works from the
+bundled panel itself (via the set_control service, on demand) - it's
+just not exposed as permanent HA entities that could double up with
+another integration's.
 """
 from __future__ import annotations
 
@@ -18,6 +28,7 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import entity_registry as er
 
 from .const import (
     DOMAIN,
@@ -31,7 +42,10 @@ from .coordinator import TuyaDashboardCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["switch", "fan", "light"]
+# No entity platforms - see module docstring. Kept as an empty tuple (not
+# removed) so async_unload_entry's async_unload_platforms call stays a
+# valid no-op rather than needing special-casing.
+PLATFORMS: list[str] = []
 
 DIAGNOSE_SCHEMA = vol.Schema({vol.Required("device_id"): cv.string})
 SET_CONTROL_SCHEMA = vol.Schema({
@@ -49,6 +63,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    _async_remove_stale_entities(hass, entry)
 
     await _async_register_panel(hass)
     _async_register_services(hass)
@@ -61,6 +76,18 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)
     return unload_ok
+
+
+def _async_remove_stale_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """One-time cleanup for anyone who installed an earlier version of this
+    integration that created switch/fan/light entities - remove those
+    orphaned registry entries now that this integration no longer creates
+    them, so they don't linger as permanently-unavailable entities."""
+    registry = er.async_get(hass)
+    stale = er.async_entries_for_config_entry(registry, entry.entry_id)
+    for entity in stale:
+        _LOGGER.info("Removing entity from an earlier version of this integration: %s", entity.entity_id)
+        registry.async_remove(entity.entity_id)
 
 
 async def _async_register_panel(hass: HomeAssistant) -> None:
