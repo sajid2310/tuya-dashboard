@@ -1,0 +1,49 @@
+list_devices:
+  name: List Tuya devices
+  description: >
+    Returns the full known device table (name, status, IP, device ID,
+    local key, protocol version, category, and available controls). Used
+    by the bundled Tuya Dashboard panel; also callable from scripts/
+    automations or the Developer Tools > Actions tab.
+
+diagnose_device:
+  name: Diagnose Tuya device
+  description: >
+    Independently checks local (LAN) and Tuya Cloud connectivity for one
+    device and returns a plain-English verdict on which side an issue is on.
+  fields:
+    device_id:
+      name: Device ID
+      description: The Tuya device ID to diagnose.
+      required: true
+      example: "eb0f04ffdd5deb6605cvge"
+      selector:
+        text:
+
+set_control:
+  name: Set Tuya device control
+  description: >
+    Sets one data point (DP) on one device directly - e.g. toggle a gang
+    on a multi-gang switch, or set a fan's speed DP. Used by the bundled
+    panel's control buttons.
+  fields:
+    device_id:
+      name: Device ID
+      description: The Tuya device ID to control.
+      required: true
+      example: "eb0f04ffdd5deb6605cvge"
+      selector:
+        text:
+    dp:
+      name: Data point (DP)
+      description: The DP index to set, as a string, e.g. "1".
+      required: true
+      example: "1"
+      selector:
+        text:
+    value:
+      name: Value
+      description: The value to set - true/false for a toggle, a number for a stepper.
+      required: true
+      selector:
+        object:

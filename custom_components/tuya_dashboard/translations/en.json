@@ -1,0 +1,28 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Tuya Local Dashboard",
+        "description": "Cloud credentials are optional - local network scanning and manually entered local_keys still work without them. From the Tuya IoT Platform, create a Cloud project and copy its Access ID/Client ID and Access Secret/Client Secret below to auto-fill device names, categories and local keys.",
+        "data": {
+          "access_id": "Access ID / Client ID",
+          "access_secret": "Access Secret / Client Secret",
+          "region": "Region"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This Tuya account (or LAN-only setup) is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "scan_interval": "Background re-sync interval (seconds)",
+          "scantime": "LAN broadcast listen time per sync (seconds)"
+        }
+      }
+    }
+  }
+}

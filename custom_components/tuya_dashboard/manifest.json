@@ -1,0 +1,12 @@
+{
+  "domain": "tuya_dashboard",
+  "name": "Tuya Local Dashboard",
+  "codeowners": ["@sajid2310"],
+  "config_flow": true,
+  "documentation": "https://github.com/sajid2310/tuya-dashboard",
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/sajid2310/tuya-dashboard/issues",
+  "requirements": ["tinytuya>=1.15", "psutil>=5.9"],
+  "version": "1.0.0"
+}
