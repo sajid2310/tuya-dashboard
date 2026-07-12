@@ -37,6 +37,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .const import (
     CATEGORY_TYPES,
+    DEFAULT_LOCAL_POLLING,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_SCANTIME,
     FAN_SPEED_DP,
@@ -151,8 +152,15 @@ class TuyaDashboardCoordinator(DataUpdateCoordinator):
             except Exception as e:  # noqa: BLE001
                 _LOGGER.warning("Tuya Cloud API request failed: %s", e)
 
+        local_polling = bool(options.get("local_polling", DEFAULT_LOCAL_POLLING))
+
         scantime = int(options.get("scantime", DEFAULT_SCANTIME))
-        forcescan_enabled = bool(cloud_list)
+        # Force-scanning opens a real connection to every cloud-known device
+        # to do a protocol handshake - only do this if local polling is
+        # explicitly enabled (see DEFAULT_LOCAL_POLLING). Otherwise we stay
+        # purely passive: just listen for the UDP broadcasts devices already
+        # send out, which never touches a device's local TCP port.
+        forcescan_enabled = bool(cloud_list) and local_polling
         scan_kwargs = dict(
             byID=True,
             tuyadevices=cloud_list,
@@ -194,12 +202,22 @@ class TuyaDashboardCoordinator(DataUpdateCoordinator):
 
         merged = self._merge(found, cloud_list, mac_ip_map)
 
-        pollable = [
-            dev_id for dev_id, entry in merged.items()
-            if entry.get("ip") and entry.get("key")
-        ]
-        if pollable:
-            self._poll_devices_for_dps(merged, pollable)
+        # Per-device status polling opens a real connection to read DPs
+        # (needed to detect gang count / fan speed / current on-off state).
+        # Same reasoning as force-scan above: only do this automatically if
+        # local polling is enabled. Otherwise entities just start as
+        # "unknown" until something triggers a real connection on demand
+        # (a manual toggle, the Diagnose button, or a status refresh) -
+        # rare, user-initiated connections don't fight another integration's
+        # persistent one the way a full-fleet poll every couple of minutes
+        # does.
+        if local_polling:
+            pollable = [
+                dev_id for dev_id, entry in merged.items()
+                if entry.get("ip") and entry.get("key")
+            ]
+            if pollable:
+                self._poll_devices_for_dps(merged, pollable)
 
         for dev_id, entry in merged.items():
             entry["type"] = device_type(entry)

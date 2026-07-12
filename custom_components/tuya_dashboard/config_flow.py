@@ -12,7 +12,14 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
 
-from .const import DEFAULT_REGION, DEFAULT_SCAN_INTERVAL, DEFAULT_SCANTIME, DOMAIN, REGIONS
+from .const import (
+    DEFAULT_LOCAL_POLLING,
+    DEFAULT_REGION,
+    DEFAULT_SCAN_INTERVAL,
+    DEFAULT_SCANTIME,
+    DOMAIN,
+    REGIONS,
+)
 
 
 class TuyaDashboardConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -67,5 +74,9 @@ class TuyaDashboardOptionsFlow(config_entries.OptionsFlow):
                 "scantime",
                 default=self.config_entry.options.get("scantime", DEFAULT_SCANTIME),
             ): vol.All(vol.Coerce(int), vol.Range(min=3, max=60)),
+            vol.Optional(
+                "local_polling",
+                default=self.config_entry.options.get("local_polling", DEFAULT_LOCAL_POLLING),
+            ): bool,
         })
         return self.async_show_form(step_id="init", data_schema=schema)

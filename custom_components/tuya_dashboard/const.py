@@ -18,6 +18,17 @@ DEFAULT_REGION = "us"
 DEFAULT_SCAN_INTERVAL = 120  # seconds between background re-syncs
 DEFAULT_SCANTIME = 12        # seconds spent listening for LAN broadcasts per sync
 
+# Off by default: force-scanning and per-device status polling both open a
+# real local connection to the device, and Tuya's local protocol only
+# accepts one active connection per device at a time. If another
+# integration (e.g. LocalTuya) already holds that connection, background
+# polling here will just produce connection timeouts for both. Cloud API
+# lookups and passive broadcast listening don't open a connection to the
+# device at all, so they're always safe to run alongside other Tuya
+# integrations - this is what background sync uses unless local polling
+# is explicitly turned on in the integration's options.
+DEFAULT_LOCAL_POLLING = False
+
 REGIONS = {
     "cn": "China",
     "us": "Western America",

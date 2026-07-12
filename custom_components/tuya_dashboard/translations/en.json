@@ -20,7 +20,8 @@
       "init": {
         "data": {
           "scan_interval": "Background re-sync interval (seconds)",
-          "scantime": "LAN broadcast listen time per sync (seconds)"
+          "scantime": "LAN broadcast listen time per sync (seconds)",
+          "local_polling": "Poll devices locally for live status (off by default - turn on only if no other integration, e.g. LocalTuya, already controls these devices; both connecting to the same device at once causes connection failures)"
         }
       }
     }
