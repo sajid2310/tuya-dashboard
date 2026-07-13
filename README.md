@@ -39,12 +39,21 @@ connectivity problem you're looking at.
 
 ## Contents
 
+- [Screenshots](#screenshots)
 - [Home Assistant integration](#home-assistant-integration-recommended)
 - [Standalone dashboard](#standalone-dashboard)
 - [Features](#features)
 - [How discovery works](#how-discovery-works)
 - [Security](#security)
 - [License](#license)
+
+## Screenshots
+
+<p align="center">
+  <img src="assets/screenshot-dashboard.png" alt="Tuya Dashboard panel listing devices with name, status, IP, device ID, local key, category and controls columns" width="900">
+  <br>
+  <sub>Sample data shown &mdash; names, IPs, device IDs and local keys are fictional.</sub>
+</p>
 
 ## Home Assistant integration (recommended)
 
