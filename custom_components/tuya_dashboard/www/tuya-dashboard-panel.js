@@ -267,7 +267,19 @@ class TuyaDashboardPanel extends HTMLElement {
       root.querySelectorAll("#typeChips .chip").forEach((c) => c.classList.toggle("active", c === btn));
       this._renderBody();
     });
-    root.addEventListener("click", (e) => this._handleBodyClick(e));
+    // this.shadowRoot itself (unlike its children) is never recreated by
+    // the innerHTML assignment above, so a listener attached to it here
+    // would survive every call to _render(). Home Assistant's panel
+    // loader can call connectedCallback - and therefore _render() - more
+    // than once for the same element instance, so without this guard a
+    // second listener would end up attached alongside the first. Any
+    // click (e.g. the local-key "show" button) would then run
+    // _handleBodyClick twice, toggling state on and back off in the same
+    // click and making it look like nothing happened.
+    if (!this._rootClickBound) {
+      root.addEventListener("click", (e) => this._handleBodyClick(e));
+      this._rootClickBound = true;
+    }
     this._renderBody();
   }
 
