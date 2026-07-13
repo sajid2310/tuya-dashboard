@@ -133,8 +133,9 @@ class TuyaDashboardCoordinator(DataUpdateCoordinator):
             self.devices = stored
 
     async def _async_update_data(self) -> dict[str, dict]:
+        localtuya_ip_map = self._get_localtuya_ip_map()
         try:
-            devices = await self.hass.async_add_executor_job(self._sync_blocking)
+            devices = await self.hass.async_add_executor_job(self._sync_blocking, localtuya_ip_map)
         except Exception as err:  # noqa: BLE001
             raise UpdateFailed(f"Tuya sync failed: {err}") from err
         await self._store.async_save(devices)
@@ -142,8 +143,37 @@ class TuyaDashboardCoordinator(DataUpdateCoordinator):
         self.last_sync_ts = time.time()
         return devices
 
+    def _get_localtuya_ip_map(self) -> dict[str, str]:
+        """Optional, read-only courtesy lookup: if LocalTuya is also
+        installed, its config entries already know each device's current
+        LAN IP (the user had to enter it, or LocalTuya's own setup wizard
+        discovered it, at some point in the past). Reusing that here is a
+        pure in-memory read of another integration's already-loaded config
+        - no network call, no connection to any device, and nothing breaks
+        if LocalTuya isn't installed (this just returns {} and the normal
+        broadcast/ARP discovery below is unaffected).
+
+        This matters because on some networks the Tuya devices simply
+        aren't reachable via broadcast or ARP from wherever Home Assistant
+        itself sits (e.g. a separate VLAN/subnet) - broadcast traffic and
+        ARP tables don't cross that boundary, so this integration's own
+        discovery can come up empty even though LocalTuya, configured with
+        specific routable IPs, works fine.
+        """
+        ip_map: dict[str, str] = {}
+        try:
+            for entry in self.hass.config_entries.async_entries("localtuya"):
+                for dev_id, info in (entry.data.get("devices") or {}).items():
+                    host = info.get("host")
+                    if dev_id and host:
+                        ip_map[dev_id] = host
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug("Could not read LocalTuya device IPs: %s", e)
+        return ip_map
+
     # -- the blocking sync itself (runs in the executor) --------------------
-    def _sync_blocking(self) -> dict[str, dict]:
+    def _sync_blocking(self, localtuya_ip_map: dict[str, str] | None = None) -> dict[str, dict]:
+        localtuya_ip_map = localtuya_ip_map or {}
         data = self.entry.data
         options = self.entry.options
 
@@ -219,7 +249,7 @@ class TuyaDashboardCoordinator(DataUpdateCoordinator):
                 except Exception as e:  # noqa: BLE001
                     _LOGGER.warning("MAC/ARP sweep failed: %s", e)
 
-        merged = self._merge(found, cloud_list, mac_ip_map)
+        merged = self._merge(found, cloud_list, mac_ip_map, localtuya_ip_map)
 
         # Broadcast-only discovery is inherently unreliable for "online" -
         # devices don't broadcast on every window, and with force-scan off
@@ -258,10 +288,11 @@ class TuyaDashboardCoordinator(DataUpdateCoordinator):
 
         return merged
 
-    def _merge(self, scanned_by_id: dict, cloud_list: list, mac_ip_map: dict) -> dict:
+    def _merge(self, scanned_by_id: dict, cloud_list: list, mac_ip_map: dict, localtuya_ip_map: dict | None = None) -> dict:
         store = {k: dict(v) for k, v in self.devices.items()}
         now = time.time()
         mac_ip_map = mac_ip_map or {}
+        localtuya_ip_map = localtuya_ip_map or {}
 
         for dev in cloud_list:
             dev_id = dev.get("id")
@@ -311,6 +342,22 @@ class TuyaDashboardCoordinator(DataUpdateCoordinator):
                     entry["origin"] = "mac_sweep"
                     store[dev_id] = entry
                     matched_by_sweep.add(dev_id)
+
+        # Last resort for the IP itself (not for "online"): if LocalTuya is
+        # installed and already knows this device's IP, use it so the
+        # inventory isn't blank even when broadcast/ARP can't reach the
+        # device from wherever Home Assistant sits (e.g. a different
+        # VLAN/subnet than the Tuya devices - broadcast and ARP don't cross
+        # that boundary, but LocalTuya's stored IP is routable regardless).
+        # This never marks a device online by itself; online/offline still
+        # comes only from broadcast/ARP confirmation above or the Tuya
+        # Cloud connect-status check that runs after this.
+        if localtuya_ip_map:
+            for dev_id, entry in store.items():
+                if not entry.get("ip") and localtuya_ip_map.get(dev_id):
+                    entry["ip"] = localtuya_ip_map[dev_id]
+                    entry["origin"] = entry.get("origin") or "localtuya"
+                    store[dev_id] = entry
 
         seen_ids = set((scanned_by_id or {}).keys()) | matched_by_sweep
         for dev_id, entry in store.items():
