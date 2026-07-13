@@ -21,7 +21,8 @@
         "data": {
           "scan_interval": "Background re-sync interval (seconds)",
           "scantime": "LAN broadcast listen time per sync (seconds)",
-          "local_polling": "Poll devices locally for live status (off by default - turn on only if no other integration, e.g. LocalTuya, already controls these devices; both connecting to the same device at once causes connection failures)"
+          "local_polling": "Poll devices locally for live status (off by default). Runs on its own schedule set below, not every sync - safe to enable even alongside LocalTuya as long as the interval isn't too short.",
+          "local_poll_interval": "Local poll interval (seconds) - how often to open a local connection, independent of the sync interval above. Default 900 (15 minutes)."
         }
       }
     }

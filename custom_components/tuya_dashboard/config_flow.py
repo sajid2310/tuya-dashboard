@@ -13,6 +13,7 @@ from homeassistant import config_entries
 from homeassistant.core import callback
 
 from .const import (
+    DEFAULT_LOCAL_POLL_INTERVAL,
     DEFAULT_LOCAL_POLLING,
     DEFAULT_REGION,
     DEFAULT_SCAN_INTERVAL,
@@ -78,5 +79,9 @@ class TuyaDashboardOptionsFlow(config_entries.OptionsFlow):
                 "local_polling",
                 default=self.config_entry.options.get("local_polling", DEFAULT_LOCAL_POLLING),
             ): bool,
+            vol.Optional(
+                "local_poll_interval",
+                default=self.config_entry.options.get("local_poll_interval", DEFAULT_LOCAL_POLL_INTERVAL),
+            ): vol.All(vol.Coerce(int), vol.Range(min=60, max=86400)),
         })
         return self.async_show_form(step_id="init", data_schema=schema)

@@ -37,6 +37,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .const import (
     CATEGORY_TYPES,
+    DEFAULT_LOCAL_POLL_INTERVAL,
     DEFAULT_LOCAL_POLLING,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_SCANTIME,
@@ -106,6 +107,10 @@ class TuyaDashboardCoordinator(DataUpdateCoordinator):
         self.entry = entry
         self._store: Store = Store(hass, STORAGE_VERSION, f"tuya_dashboard_{entry.entry_id}")
         self.devices: dict[str, dict] = {}
+        # 0 means "never polled locally yet" - so the first sync after
+        # startup/reload always does one local poll to get fresh data,
+        # then throttles to local_poll_interval after that.
+        self._last_local_poll: float = 0.0
         interval = entry.options.get("scan_interval", DEFAULT_SCAN_INTERVAL)
         super().__init__(
             hass,
@@ -154,14 +159,21 @@ class TuyaDashboardCoordinator(DataUpdateCoordinator):
                 _LOGGER.warning("Tuya Cloud API request failed: %s", e)
 
         local_polling = bool(options.get("local_polling", DEFAULT_LOCAL_POLLING))
+        local_poll_interval = int(options.get("local_poll_interval", DEFAULT_LOCAL_POLL_INTERVAL))
+        now_ts = time.time()
+        # Local polling (if enabled at all) runs on its own slower cadence,
+        # independent of the regular sync interval - see
+        # DEFAULT_LOCAL_POLL_INTERVAL. Every sync in between reuses the
+        # cached IP/DP data from the last local poll.
+        due_for_local_poll = local_polling and (now_ts - self._last_local_poll >= local_poll_interval)
 
         scantime = int(options.get("scantime", DEFAULT_SCANTIME))
         # Force-scanning opens a real connection to every cloud-known device
-        # to do a protocol handshake - only do this if local polling is
-        # explicitly enabled (see DEFAULT_LOCAL_POLLING). Otherwise we stay
+        # to do a protocol handshake - only do this when a local poll is
+        # actually due (see due_for_local_poll above). Otherwise we stay
         # purely passive: just listen for the UDP broadcasts devices already
         # send out, which never touches a device's local TCP port.
-        forcescan_enabled = bool(cloud_list) and local_polling
+        forcescan_enabled = bool(cloud_list) and due_for_local_poll
         scan_kwargs = dict(
             byID=True,
             tuyadevices=cloud_list,
@@ -221,20 +233,18 @@ class TuyaDashboardCoordinator(DataUpdateCoordinator):
 
         # Per-device status polling opens a real connection to read DPs
         # (needed to detect gang count / fan speed / current on-off state).
-        # Same reasoning as force-scan above: only do this automatically if
-        # local polling is enabled. Otherwise entities just start as
-        # "unknown" until something triggers a real connection on demand
-        # (a manual toggle, the Diagnose button, or a status refresh) -
-        # rare, user-initiated connections don't fight another integration's
-        # persistent one the way a full-fleet poll every couple of minutes
-        # does.
-        if local_polling:
+        # Same reasoning as force-scan above: only do this when a local
+        # poll is actually due. In between, entities/panel just keep
+        # showing the last cached DPs - stale by up to local_poll_interval,
+        # but never fighting another integration's connection for it.
+        if due_for_local_poll:
             pollable = [
                 dev_id for dev_id, entry in merged.items()
                 if entry.get("ip") and entry.get("key")
             ]
             if pollable:
                 self._poll_devices_for_dps(merged, pollable)
+            self._last_local_poll = now_ts
 
         for dev_id, entry in merged.items():
             entry["type"] = device_type(entry)

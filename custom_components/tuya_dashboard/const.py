@@ -29,6 +29,15 @@ DEFAULT_SCANTIME = 12        # seconds spent listening for LAN broadcasts per sy
 # is explicitly turned on in the integration's options.
 DEFAULT_LOCAL_POLLING = False
 
+# When local polling is turned on, it doesn't run on every background sync
+# (default every 120s) - that's still frequent enough to meaningfully
+# contend with another integration's persistent connection. Instead it
+# runs on its own, much slower cadence, and the IP/DP data from the last
+# local poll is cached and reused for every sync in between. 15 minutes
+# is infrequent enough that an occasional brief overlap with another
+# integration's connection is very unlikely to matter.
+DEFAULT_LOCAL_POLL_INTERVAL = 900  # 15 minutes
+
 REGIONS = {
     "cn": "China",
     "us": "Western America",
