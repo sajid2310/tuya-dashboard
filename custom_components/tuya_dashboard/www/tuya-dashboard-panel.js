@@ -52,6 +52,10 @@ class TuyaDashboardPanel extends HTMLElement {
     this._loading = true;
     this._error = null;
     this._diag = null; // { deviceId, name, loading, result }
+    // Epoch seconds of the coordinator's last successful sync, as reported
+    // by the list_devices service - independent of any single device's own
+    // last_seen, so it's obvious whether the whole dashboard is current.
+    this._lastRefreshed = null;
   }
 
   set hass(hass) {
@@ -61,6 +65,9 @@ class TuyaDashboardPanel extends HTMLElement {
       this._render();
       this._refresh();
       this._timer = setInterval(() => this._refresh(), REFRESH_MS);
+      // Ticks the "Last refreshed: Xs/m ago" label between actual syncs so
+      // it counts up smoothly instead of only updating once every 30s.
+      this._clockTimer = setInterval(() => this._updateLastRefreshedLabel(), 10000);
     }
   }
 
@@ -74,6 +81,7 @@ class TuyaDashboardPanel extends HTMLElement {
 
   disconnectedCallback() {
     clearInterval(this._timer);
+    clearInterval(this._clockTimer);
   }
 
   async _refresh() {
@@ -81,12 +89,22 @@ class TuyaDashboardPanel extends HTMLElement {
     try {
       const msg = await callService(this._hass, "list_devices", {});
       this._devices = (msg.response && msg.response.devices) || [];
+      this._lastRefreshed = (msg.response && msg.response.last_refreshed) || null;
       this._error = null;
     } catch (e) {
       this._error = e.message || String(e);
     }
     this._loading = false;
+    this._updateLastRefreshedLabel();
     this._renderBody();
+  }
+
+  _updateLastRefreshedLabel() {
+    const el = this.shadowRoot && this.shadowRoot.getElementById("lastRefreshed");
+    if (!el) return;
+    el.textContent = this._lastRefreshed
+      ? "Last refreshed " + relativeTime(this._lastRefreshed)
+      : "";
   }
 
   _filtered() {
@@ -227,6 +245,7 @@ class TuyaDashboardPanel extends HTMLElement {
         <div class="topbar">
           <h1>Tuya Devices</h1>
           <input id="search" type="text" placeholder="Search name, IP, ID…">
+          <span class="last-refreshed" id="lastRefreshed"></span>
           <button class="btn" id="refreshBtn">Refresh</button>
         </div>
         <div class="chips" id="statusChips">
@@ -280,6 +299,7 @@ class TuyaDashboardPanel extends HTMLElement {
       root.addEventListener("click", (e) => this._handleBodyClick(e));
       this._rootClickBound = true;
     }
+    this._updateLastRefreshedLabel();
     this._renderBody();
   }
 
@@ -364,6 +384,7 @@ class TuyaDashboardPanel extends HTMLElement {
       .topbar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
       .topbar h1 { font-size: 20px; font-weight: 500; margin: 0; flex-shrink: 0; }
       #search { flex: 1; max-width: 320px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--divider-color); background: var(--card-background-color); color: var(--primary-text-color); }
+      .last-refreshed { font-size: 12px; color: var(--secondary-text-color); white-space: nowrap; }
       .btn { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--divider-color); background: var(--card-background-color); color: var(--primary-text-color); cursor: pointer; }
       .btn.primary { background: var(--primary-color); color: var(--text-primary-color, #fff); border-color: var(--primary-color); }
       .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }

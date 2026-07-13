@@ -135,7 +135,12 @@ def _async_register_services(hass: HomeAssistant) -> None:
 
     async def _handle_list_devices(call: ServiceCall) -> ServiceResponse:
         devices = []
+        last_refreshed: float | None = None
         for coordinator in _coordinators(hass):
+            if coordinator.last_sync_ts and (
+                last_refreshed is None or coordinator.last_sync_ts > last_refreshed
+            ):
+                last_refreshed = coordinator.last_sync_ts
             for dev_id, d in coordinator.devices.items():
                 devices.append({
                     "device_id": dev_id,
@@ -150,7 +155,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
                     "last_dps": d.get("last_dps", {}),
                     "last_seen": d.get("last_seen"),
                 })
-        return {"devices": devices}
+        return {"devices": devices, "last_refreshed": last_refreshed}
 
     hass.services.async_register(
         DOMAIN, SERVICE_LIST_DEVICES, _handle_list_devices,

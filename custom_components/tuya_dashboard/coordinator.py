@@ -111,6 +111,11 @@ class TuyaDashboardCoordinator(DataUpdateCoordinator):
         # startup/reload always does one local poll to get fresh data,
         # then throttles to local_poll_interval after that.
         self._last_local_poll: float = 0.0
+        # Epoch seconds of the last successful sync (cloud list + broadcast/
+        # ARP scan + online-status refresh) - surfaced to the panel as
+        # "Last refreshed" so it's obvious whether the data on screen is
+        # current or stale, independent of each device's own last_seen.
+        self.last_sync_ts: float | None = None
         interval = entry.options.get("scan_interval", DEFAULT_SCAN_INTERVAL)
         super().__init__(
             hass,
@@ -134,6 +139,7 @@ class TuyaDashboardCoordinator(DataUpdateCoordinator):
             raise UpdateFailed(f"Tuya sync failed: {err}") from err
         await self._store.async_save(devices)
         self.devices = devices
+        self.last_sync_ts = time.time()
         return devices
 
     # -- the blocking sync itself (runs in the executor) --------------------
