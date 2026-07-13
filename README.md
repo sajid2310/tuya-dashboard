@@ -1,203 +1,188 @@
-# Tuya Local Dashboard
+<p align="center">
+  <img src="assets/logo.svg" width="120" height="120" alt="Tuya Dashboard logo">
+</p>
 
-A one-page, TasmoAdmin-style dashboard for finding and controlling local
-Tuya switches — built for people using the **Tuya Local** integration in
-Home Assistant who want an easy way to discover device IPs and local keys.
+<h1 align="center">Tuya Dashboard</h1>
 
-It combines three discovery methods:
+<p align="center">
+  A self-contained inventory &amp; troubleshooting dashboard for local Tuya devices &mdash;
+  as a native Home Assistant integration, or as a standalone web app.
+</p>
 
-- **LAN scan** — listens for the UDP broadcasts Tuya devices send on
-  your local network (ports 6666/6667/7000) to find IP, device ID and
-  protocol version.
-- **Tuya Cloud API** — using your Tuya IoT Platform Access ID/Secret,
-  pulls your full device list (names, categories, MAC addresses, and
-  local_keys) and matches it against what's on the LAN.
-- **MAC/ARP sweep** — for any device the Cloud API knows about (including
-  its MAC) but the broadcast scan missed this round, sweeps your local
-  subnet(s) on Tuya's local port (6668) and cross-references your
-  machine's ARP table for that MAC to resolve its current IP. This is
-  the closest generic equivalent to "ask the router's DHCP leases for
-  this MAC" — real DHCP lease tables are router/vendor-specific and not
-  something a client tool can query universally, but ARP is the same
-  IP&harr;MAC mapping, kept locally by every OS, and doesn't need router
-  access or extra privileges to read.
+<p align="center">
+  <a href="https://github.com/sajid2310/tuya-dashboard/stargazers"><img src="https://img.shields.io/github/stars/sajid2310/tuya-dashboard?style=flat&color=38B2AC" alt="Stars"></a>
+  <a href="https://github.com/sajid2310/tuya-dashboard/issues"><img src="https://img.shields.io/github/issues/sajid2310/tuya-dashboard?style=flat&color=38B2AC" alt="Issues"></a>
+  <a href="https://github.com/sajid2310/tuya-dashboard/commits/master"><img src="https://img.shields.io/github/last-commit/sajid2310/tuya-dashboard?style=flat&color=38B2AC" alt="Last commit"></a>
+  <img src="https://img.shields.io/badge/HACS-Custom-41BDF5.svg" alt="HACS Custom">
+  <img src="https://img.shields.io/badge/Home%20Assistant-2024.1%2B-41BDF5.svg" alt="Home Assistant 2024.1+">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-38B2AC.svg" alt="MIT License"></a>
+</p>
 
-One click ("Sync devices") runs all three and merges the results, so you
-get IP + local_key + version + MAC for every switch in one table —
-everything Home Assistant's Tuya Local integration needs, and enough to
-flip switches on/off right from this page.
+---
 
-## Important: this must run on your home LAN
+Tuya's local protocol is well documented, but *finding out what you actually
+have* &mdash; which devices exist, what their current IP and local key are,
+whether they're reachable, and why one has gone offline &mdash; is the part
+that's usually missing. This project is that missing inventory layer, built
+two ways from the same core logic:
 
-Discovery relies on UDP broadcast packets, which don't cross subnets,
-VLANs, or the internet. Run this on a machine on the **same network** as
-your Tuya devices (e.g. the same host running Home Assistant, a Raspberry
-Pi on your LAN, or your own computer at home) — not in a cloud VM or a
-Docker network in bridge mode.
+- **[`custom_components/tuya_dashboard`](custom_components/tuya_dashboard)**
+  &mdash; a native Home Assistant integration, installed via HACS. This is
+  the actively maintained, recommended way to use this project.
+- **[`app.py`](app.py)** &mdash; a standalone Flask web app for anyone who
+  wants the same dashboard without running Home Assistant at all.
 
-## Getting your Tuya Cloud Access ID/Secret (optional but recommended)
+Both combine three discovery methods (LAN broadcast, the Tuya Cloud API, and
+a MAC/ARP subnet sweep) into one inventory table, plus an independent
+local-vs-cloud diagnose tool that tells you in plain English which side of a
+connectivity problem you're looking at.
 
-Local-only scanning finds devices but usually can't get their local_key
-(Tuya only reveals it through the cloud once a device is paired to your
-account). To auto-fill names and keys:
+## Contents
 
-1. Go to https://iot.tuya.com and create a free developer account.
-2. Create a **Cloud Project** (any plan works, incl. Trial).
-3. Under the project's **Devices** tab, choose "Link Tuya App Account"
-   and scan the QR code with your Smart Life / Tuya Smart app to link
-   the account your switches are registered to.
-4. Copy the project's **Access ID/Client ID** and **Access Secret/Client
-   Secret** from the Overview tab.
-5. Paste them into this dashboard's "Cloud API settings".
+- [Home Assistant integration](#home-assistant-integration-recommended)
+- [Standalone dashboard](#standalone-dashboard)
+- [Features](#features)
+- [How discovery works](#how-discovery-works)
+- [Security](#security)
+- [License](#license)
 
-If you skip this, the dashboard still works — it'll show devices found
-on the LAN, and you can paste in an IP/local_key manually via "Edit" if
-you already have them from elsewhere (e.g. `tinytuya wizard`, or an
-existing Home Assistant `.storage` file).
+## Home Assistant integration (recommended)
 
-## Running it
+A self-contained custom panel &mdash; no external Lovelace card, no
+dependency on another Tuya integration. It's built to run safely
+**alongside** LocalTuya or the official Tuya integration: by default it
+never opens a connection to your devices, relying instead on the Tuya Cloud
+API and passive broadcast listening. Optional local polling, when turned on,
+runs on its own slow, configurable schedule (default 15 minutes) rather than
+every sync, so an occasional local check is very unlikely to collide with
+another integration's persistent connection.
 
-### Option A: Python directly
+### Install via HACS
+
+1. In Home Assistant, open **HACS**.
+2. Click the three-dot menu (top right) &rarr; **Custom repositories**.
+3. Add `https://github.com/sajid2310/tuya-dashboard`, category **Integration**.
+4. Find **Tuya Local Dashboard** in HACS and install it.
+5. Restart Home Assistant.
+6. **Settings &rarr; Devices & Services &rarr; Add Integration &rarr; Tuya Local Dashboard.**
+   Cloud credentials are optional (see below) &mdash; you can also run it
+   LAN-only.
+7. A **Tuya Devices** panel appears in the sidebar.
+
+### Optional: Tuya Cloud credentials
+
+Local scanning alone can find devices on your network, but Tuya only hands
+out a device's `local_key` through the cloud once it's linked to your
+account. To get names, categories and local keys auto-filled:
+
+1. Create a free account at [iot.tuya.com](https://iot.tuya.com) and a
+   **Cloud Project** (the Trial plan is enough).
+2. Under the project's **Devices** tab, choose *Link Tuya App Account* and
+   scan the QR code with the Smart Life / Tuya Smart app your devices are
+   registered to.
+3. Copy the project's **Access ID** and **Access Secret** into the
+   integration's setup form.
+
+### Options
+
+Configurable from the integration's **Configure** button:
+
+| Option | Default | What it does |
+|---|---|---|
+| Background re-sync interval | 120s | How often the cloud list + broadcast/ARP scan run |
+| LAN broadcast listen time | 12s | How long each sync listens for device broadcasts |
+| Poll devices locally | off | Opens a real local connection to read live on/off/DP state |
+| Local poll interval | 900s (15 min) | Independent cadence for local polling, so it's safe to enable even alongside LocalTuya |
+
+## Standalone dashboard
+
+For anyone who wants the same inventory table without Home Assistant.
 
 ```bash
 cd tuya-dashboard
 pip install -r requirements.txt
 python app.py
+# open http://<this machine's IP>:8080
 ```
 
-Then open `http://<this-machine's-ip>:8080`. This runs in the foreground
-(Ctrl+C to stop) - useful for a first run so you can see the logs.
-
-**Start / stop / restart / status** (runs it in the background instead,
-with a PID file so you don't have to keep a terminal open):
+Or with Docker (must run with **host networking** &mdash; discovery needs to
+see LAN broadcast traffic, which bridge-mode containers can't see):
 
 ```bash
-chmod +x start.sh stop.sh restart.sh status.sh   # first time only
-./start.sh      # start in the background
-./status.sh     # check if it's running
-./stop.sh       # stop it
-./restart.sh    # stop + start
+docker compose up -d
 ```
 
-Logs go to `data/dashboard.log` (`tail -f data/dashboard.log` to follow
-them). These scripts don't set up "start on boot" by themselves - on
-macOS you'd wrap `start.sh` in a `launchd` agent, on Linux a `systemd`
-service, if you want it to survive a reboot automatically. Ask if you'd
-like one generated for your setup.
+Must run on the same LAN as your Tuya devices &mdash; see
+[Notes & limitations](#notes--limitations) below for why. Full setup,
+credential storage, and production notes are further down this README.
 
-### Option B: Docker
+## Features
 
-Because discovery needs to see LAN broadcast traffic, the container must
-use **host networking** (bridge mode will not see the broadcasts). The
-included `docker-compose.yml` already sets this up, along with a
-`restart: unless-stopped` policy so it comes back up after a reboot or
-Docker restart - the closest equivalent to "install as a service":
+- **Inventory table** &mdash; name, online/offline status, IP, device ID,
+  local key (masked, click to reveal), protocol version, category, and
+  type-appropriate controls, for every device on your account.
+- **Diagnose** &mdash; checks local (LAN) and Tuya Cloud connectivity
+  independently for one device and gives a plain-English verdict: is this a
+  local network issue, a cloud/internet issue on the device's side, or is
+  everything fine.
+- **Type-aware controls** &mdash; a single toggle for simple switches, one
+  toggle per gang for multi-gang switches, and power + speed controls for
+  fans, instead of one generic on/off button.
+- **Type filters** &mdash; split the inventory by switch / plug / light /
+  fan / other, plus online / offline / missing-key filters.
+- **Last refreshed indicator** *(Home Assistant integration)* &mdash; always
+  visible, so it's obvious whether what's on screen is current.
+- **Coexists with LocalTuya** *(Home Assistant integration)* &mdash; if
+  LocalTuya is also installed and already knows a device's IP, this
+  integration reads that (a safe, in-memory, read-only lookup) rather than
+  re-discovering it, so the inventory stays populated even on networks where
+  broadcast/ARP can't reach the devices from wherever Home Assistant sits.
 
-```bash
-cd tuya-dashboard
-docker compose up -d      # start (build + run in the background)
-docker compose logs -f    # follow logs
-docker compose down       # stop
-docker compose restart    # restart
-```
+## How discovery works
 
-Or without Compose:
+Three methods, merged into one table:
 
-```bash
-docker build -t tuya-dashboard .
-docker run -d --name tuya-dashboard \
-  --network host \
-  -v tuya-dashboard-data:/data \
-  --restart unless-stopped \
-  tuya-dashboard
-# docker stop tuya-dashboard   /   docker start tuya-dashboard
-```
+1. **LAN broadcast** &mdash; passively listens for the UDP broadcasts Tuya
+   devices already send out on your network (no connection opened).
+2. **Tuya Cloud API** &mdash; using your Access ID/Secret, pulls your full
+   device list: names, categories, and local keys.
+3. **MAC/ARP sweep** &mdash; for devices the cloud API knows about but the
+   broadcast scan missed, probes local subnets on Tuya's local port and
+   cross-references the OS ARP table to resolve a current IP from a known
+   MAC address.
 
-Then open `http://<host-ip>:8080` (host networking means it binds
-directly to port 8080 on the host).
+### Notes & limitations
 
-## Using it
+- Broadcast and ARP-based discovery only work within the same LAN
+  segment/VLAN as the devices &mdash; they don't cross subnet boundaries.
+  If Home Assistant or the standalone app run on a different subnet than
+  your Tuya devices, discovery can come up empty even though the devices
+  are perfectly reachable over routed unicast (which is what the optional
+  local-polling / LocalTuya-fallback paths use instead).
+- Not every device broadcasts continuously, and some newer protocol
+  versions are quieter. If a device doesn't show up on the first sync, try
+  again, or check it's powered on and connected to Wi-Fi.
+- This project is independent, built on the
+  [tinytuya](https://github.com/jasonacox/tinytuya) library. It is not
+  affiliated with Tuya, Home Assistant, or LocalTuya.
 
-1. Click **Cloud API settings** and enter your Access ID/Secret (optional).
-2. Click **Sync devices**. This takes ~15 seconds — it queries the cloud
-   (if configured) then listens on the LAN for broadcasts, matching them
-   up by device ID.
-3. Each row shows name, online status, IP, device ID, local key,
-   protocol version and category. Click the eye icon to reveal a key,
-   the clipboard icon to copy it, and the toggle to turn a switch on/off.
-4. Use the ✎ edit icon to fix an IP that changed, paste in a local_key
-   you already have, or set which DP index controls the switch (most
-   single switches use DP `1`; multi-gang switches use `1`, `2`, `3`…).
+## Security
 
-Copy the IP + Device ID + Local Key straight into Home Assistant's
-**Settings → Devices & Services → Add Integration → Tuya Local** flow
-for each switch.
+- **Home Assistant integration**: cloud credentials and device local keys
+  are stored using Home Assistant's own config entry storage, the same
+  mechanism every other integration uses &mdash; nothing is written outside
+  of Home Assistant's own storage directory.
+- **Standalone app**: your Tuya Access Secret and every device's local key
+  are encrypted at rest with [Fernet](https://cryptography.io/en/latest/fernet/)
+  (AES-128-CBC + HMAC) in `data/config.json` / `data/devices.json`, decrypted
+  only in memory when needed. `data/` is gitignored and should never be
+  committed. See the encryption key notes in
+  [`app.py`](app.py) before deploying beyond a local test.
+- This repository's full history has been checked for committed secrets,
+  credentials, and local keys &mdash; none are present. Please still double
+  check before opening a public fork or PR that nothing device-specific from
+  your own account is included.
 
-## Notes & limitations
+## License
 
-- Not every Tuya device broadcasts continuously, and some protocol 3.4/3.5
-  devices are quieter — if a device doesn't show up, try Sync again, or
-  check the device is on and connected to Wi-Fi. The MAC/ARP sweep (see
-  above) usually catches these on the next sync anyway, as long as the
-  Cloud API already knows the device's MAC.
-- If a device is missing from the LAN scan but is in your Cloud account,
-  it'll still show up in the table (with its name/key) but marked
-  Offline / no IP, until it's seen on the network (by broadcast or sweep).
-- The MAC/ARP sweep only sees your machine's directly-connected subnet(s)
-  — same constraint as the broadcast scan, and same reason this app needs
-  to run on your LAN rather than a remote server. It needs the `psutil`
-  dependency to list local network interfaces, and reads either
-  `/proc/net/arp` (Linux/Docker) or the `arp -a` command (macOS) — no root
-  or raw sockets required. A strict local firewall or endpoint security
-  tool that blocks outbound connections to your own subnet could suppress
-  it; the LAN broadcast scan and manual IP entry both still work either way.
-- This is an independent tool built on the [tinytuya](https://github.com/jasonacox/tinytuya)
-  library; it is not affiliated with Tuya, Home Assistant, or TasmoAdmin.
-
-## Credential storage
-
-Your Tuya Access Secret and every device's `local_key` are sensitive —
-they grant control over physical devices in your home. They are:
-
-- Encrypted at rest with [Fernet](https://cryptography.io/en/latest/fernet/)
-  (AES-128-CBC + HMAC) before being written to `data/config.json` and
-  `data/devices.json`. The API also never echoes the raw access_secret
-  back to the browser.
-- Decrypted only in memory, when the app needs to call the Tuya Cloud API
-  or talk to a device on your LAN, and when the dashboard displays a key
-  for you to copy into Home Assistant.
-
-The encryption key itself comes from the `APP_SECRET_KEY` environment
-variable. If you don't set one, the app generates and persists a key to
-`data/secret.key` on first run so restarts keep working — fine for a
-quick local test, but for any real deployment you should set
-`APP_SECRET_KEY` explicitly (e.g. `openssl rand -base64 32` to generate
-one) via your platform's secrets manager, and back it up. If that key is
-ever lost, every stored secret becomes unreadable and you'll need to
-re-enter your Access Secret and re-sync devices.
-
-`data/` (config, devices, and the local key file) is already in
-`.gitignore` — never commit it.
-
-## Production notes: making this available to other people
-
-The discovery and control features in this app depend on being on the
-same LAN as your Tuya devices — UDP broadcast and the local device
-protocol (TCP port 6668) don't route over the internet. That shapes how
-"productionizing" this can work:
-
-- **Self-hosted (recommended, matches how TasmoAdmin/most HA-adjacent
-  tools distribute)**: publish the code as an open-source repo. Anyone
-  who wants to use it clones/Docker-runs their *own* instance on their
-  *own* network, using their *own* Tuya credentials. No user accounts or
-  multi-tenant data store needed — each install is single-user by
-  design, which is also why the credential storage above is deliberately
-  simple (one config file, not a database of everyone's secrets).
-- **Centrally hosted for many users**: only works for the Cloud API
-  parts (device listing/naming), not LAN discovery or local on/off
-  control, since a remote server can't reach into someone else's home
-  network. You'd need real user accounts, per-user encrypted secrets in
-  a database (not flat files), HTTPS, and switching device control to
-  Tuya's Cloud API device-control endpoints instead of the local
-  protocol — a meaningfully bigger project, and it gives up the "local"
-  part of "Tuya Local" that this was built around.
+[MIT](LICENSE)

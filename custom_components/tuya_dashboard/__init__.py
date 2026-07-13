@@ -28,6 +28,7 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from .const import (
@@ -64,6 +65,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _async_remove_stale_entities(hass, entry)
+    _async_remove_stale_devices(hass, entry)
 
     await _async_register_panel(hass)
     _async_register_services(hass)
@@ -88,6 +90,22 @@ def _async_remove_stale_entities(hass: HomeAssistant, entry: ConfigEntry) -> Non
     for entity in stale:
         _LOGGER.info("Removing entity from an earlier version of this integration: %s", entity.entity_id)
         registry.async_remove(entity.entity_id)
+
+
+def _async_remove_stale_devices(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Companion cleanup to _async_remove_stale_entities: removing the
+    entities above doesn't remove the HA "device" registry rows those
+    entities used to belong to - a device can exist with zero entities
+    under it. Since this integration is inventory + diagnose only (its
+    real UI is the bundled sidebar panel, not HA's generic Devices &
+    Services list), those now-empty device rows are just clutter left
+    over from an earlier version, not something anyone needs to click
+    into."""
+    registry = dr.async_get(hass)
+    stale = dr.async_entries_for_config_entry(registry, entry.entry_id)
+    for device in stale:
+        _LOGGER.info("Removing empty device entry from an earlier version of this integration: %s", device.name)
+        registry.async_remove_device(device.id)
 
 
 async def _async_register_panel(hass: HomeAssistant) -> None:

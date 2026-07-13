@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" width="160" height="160">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2C7A7B"/>
+      <stop offset="100%" stop-color="#1A365D"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4FD1C5"/>
+      <stop offset="100%" stop-color="#38B2AC"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="4" y="4" width="152" height="152" rx="34" fill="url(#bg)"/>
+  <rect x="4" y="4" width="152" height="152" rx="34" fill="none" stroke="#4FD1C5" stroke-opacity="0.35" stroke-width="2"/>
+
+  <!-- signal arcs: local/LAN discovery motif -->
+  <g stroke="#4FD1C5" stroke-width="4" fill="none" stroke-linecap="round" opacity="0.9">
+    <path d="M 52 66 A 22 22 0 0 1 108 66"/>
+    <path d="M 42 56 A 36 36 0 0 1 118 56" opacity="0.55"/>
+  </g>
+
+  <!-- rounded switch/toggle body -->
+  <rect x="46" y="78" width="68" height="40" rx="20" fill="#0F2942" stroke="url(#glow)" stroke-width="3"/>
+  <circle cx="100" cy="98" r="13" fill="url(#glow)"/>
+
+  <!-- power glyph inside the toggle knob -->
+  <path d="M100 91.5 v5 M95.5 96.5 a7 7 0 1 0 9 0" stroke="#0F2942" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+
+  <!-- small status dot -->
+  <circle cx="126" cy="40" r="7" fill="#4FD1C5"/>
+  <circle cx="126" cy="40" r="7" fill="none" stroke="#0F2942" stroke-width="2"/>
+</svg>
