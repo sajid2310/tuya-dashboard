@@ -137,6 +137,7 @@ class TuyaDashboardCoordinator(DataUpdateCoordinator):
         options = self.entry.options
 
         cloud_list: list[dict] = []
+        cloud = None
         if data.get("access_id") and data.get("access_secret"):
             try:
                 cloud = tinytuya.Cloud(
@@ -201,6 +202,22 @@ class TuyaDashboardCoordinator(DataUpdateCoordinator):
                     _LOGGER.warning("MAC/ARP sweep failed: %s", e)
 
         merged = self._merge(found, cloud_list, mac_ip_map)
+
+        # Broadcast-only discovery is inherently unreliable for "online" -
+        # devices don't broadcast on every window, and with force-scan off
+        # by default there's no active handshake to confirm reachability
+        # either. Tuya Cloud's per-device connect-status check fixes this
+        # without touching the device at all (it's a cloud-side API call,
+        # same as the Diagnose button's cloud check) - so it's always safe
+        # to run, regardless of the local_polling setting.
+        if cloud is not None and cloud_list:
+            # Broadcast-confirmed devices this cycle are already known-good;
+            # only ask the cloud about the rest so a momentary cloud-side
+            # lag can't override a device we just heard from directly.
+            already_confirmed = set((found or {}).keys())
+            check_ids = [d["id"] for d in cloud_list if d.get("id") and d["id"] not in already_confirmed]
+            if check_ids:
+                self._refresh_cloud_online_status(cloud, merged, check_ids)
 
         # Per-device status polling opens a real connection to read DPs
         # (needed to detect gang count / fan speed / current on-off state).
@@ -285,6 +302,28 @@ class TuyaDashboardCoordinator(DataUpdateCoordinator):
                 entry["online"] = False
 
         return store
+
+    def _refresh_cloud_online_status(self, cloud, store: dict, dev_ids: list[str], max_workers=5) -> None:
+        """Ask Tuya Cloud (not the device) whether each device is online.
+        This is the same call the Diagnose button uses for its cloud check
+        - a plain HTTPS request to Tuya's API, never a connection to the
+        device itself - so it's always safe to run in the background
+        regardless of what other integrations are doing locally."""
+        def _check_one(dev_id: str) -> None:
+            try:
+                status = cloud.getconnectstatus(dev_id)
+            except Exception:  # noqa: BLE001
+                return
+            if isinstance(status, dict) and status.get("Error"):
+                return
+            entry = store.get(dev_id)
+            if entry is not None:
+                entry["online"] = bool(status)
+                if status:
+                    entry["last_seen"] = time.time()
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as ex:
+            list(ex.map(_check_one, dev_ids))
 
     def _poll_devices_for_dps(self, store: dict, dev_ids: list[str], max_workers=8, timeout=3) -> None:
         def _poll_one(dev_id: str) -> None:
