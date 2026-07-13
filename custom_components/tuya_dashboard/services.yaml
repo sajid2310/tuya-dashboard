@@ -16,7 +16,7 @@ diagnose_device:
       name: Device ID
       description: The Tuya device ID to diagnose.
       required: true
-      example: "eb0f04ffdd5deb6605cvge"
+      example: "bf1234567890abcdef01"
       selector:
         text:
 
@@ -31,7 +31,7 @@ set_control:
       name: Device ID
       description: The Tuya device ID to control.
       required: true
-      example: "eb0f04ffdd5deb6605cvge"
+      example: "bf1234567890abcdef01"
       selector:
         text:
     dp:
