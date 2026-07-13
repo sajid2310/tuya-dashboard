@@ -2,3 +2,7 @@ data/
 __pycache__/
 *.pyc
 .venv/
+
+# Personal local dev helpers (macOS double-click launchers) - not part
+# of the published project, kept out of version control on purpose.
+*.command

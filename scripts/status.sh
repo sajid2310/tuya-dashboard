@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Report whether the Tuya Dashboard is currently running.
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 DATA_DIR="${DATA_DIR:-data}"
 PIDFILE="$DATA_DIR/dashboard.pid"

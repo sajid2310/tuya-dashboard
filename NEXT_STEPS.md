@@ -23,7 +23,7 @@ network - that testing has to happen on an actual LAN, which it now is.
       `data/config.json` / `data/devices.json` should still decrypt fine
       after a restart).
 - [ ] Test **both install paths** on real hardware: the plain-Python
-      `start.sh`/`stop.sh` flow, and `docker compose up -d` with host
+      `scripts/start.sh`/`scripts/stop.sh` flow, and `docker compose up -d` with host
       networking - confirm Docker's host networking actually sees LAN
       broadcasts too (this is the part most likely to behave differently
       machine to machine).

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Stop the Tuya Dashboard started by ./start.sh
+# Stop the Tuya Dashboard started by ./scripts/start.sh
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 DATA_DIR="${DATA_DIR:-data}"
 PIDFILE="$DATA_DIR/dashboard.pid"

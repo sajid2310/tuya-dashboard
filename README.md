@@ -114,6 +114,16 @@ python app.py
 # open http://<this machine's IP>:8080
 ```
 
+Or use the bundled lifecycle scripts, which run the app in the background
+and manage a pidfile for you:
+
+```bash
+./scripts/start.sh     # start (respects PORT / DATA_DIR env vars)
+./scripts/status.sh    # check whether it's running
+./scripts/stop.sh      # stop it
+./scripts/restart.sh   # stop + start
+```
+
 Or with Docker (must run with **host networking** &mdash; discovery needs to
 see LAN broadcast traffic, which bridge-mode containers can't see):
 
