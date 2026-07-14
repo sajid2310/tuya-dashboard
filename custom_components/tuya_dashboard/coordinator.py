@@ -17,6 +17,7 @@ loop.
 """
 from __future__ import annotations
 
+import asyncio
 import concurrent.futures
 import ipaddress
 import logging
@@ -46,6 +47,7 @@ from .const import (
     GANG_SWITCH_DPS,
     MAX_NETWORKS_SWEPT,
     MAX_SWEEP_HOSTS_PER_NET,
+    SYNC_TIMEOUT,
     TUYA_LOCAL_PORT,
 )
 
@@ -135,7 +137,29 @@ class TuyaDashboardCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self) -> dict[str, dict]:
         localtuya_ip_map = self._get_localtuya_ip_map()
         try:
-            devices = await self.hass.async_add_executor_job(self._sync_blocking, localtuya_ip_map)
+            # _sync_blocking can open real local connections to devices
+            # (forcescan / per-device DP polling, when local_polling is on).
+            # tinytuya doesn't guarantee every one of those connection
+            # attempts has its own bounded timeout, and if another
+            # integration (e.g. LocalTuya) already holds a device's single
+            # local connection slot, an attempt can hang far longer than
+            # expected instead of failing outright. Without a ceiling here,
+            # a single hung device silently freezes this coordinator
+            # forever - every future scheduled sync just finds a refresh
+            # already "in progress" and never runs, so last_sync_ts (the
+            # panel's "Last refreshed" label) stops advancing with no error
+            # ever logged. Bounding it means a stuck sync surfaces as a
+            # normal, logged UpdateFailed instead, and the next scheduled
+            # sync gets a real chance to run.
+            async with asyncio.timeout(SYNC_TIMEOUT):
+                devices = await self.hass.async_add_executor_job(self._sync_blocking, localtuya_ip_map)
+        except TimeoutError as err:
+            raise UpdateFailed(
+                f"Tuya sync timed out after {SYNC_TIMEOUT}s - a device connection likely "
+                "hung. This usually means another integration (e.g. LocalTuya) already "
+                "holds that device's local connection; consider turning off 'Poll devices "
+                "locally' in this integration's options if it keeps happening."
+            ) from err
         except Exception as err:  # noqa: BLE001
             raise UpdateFailed(f"Tuya sync failed: {err}") from err
         await self._store.async_save(devices)

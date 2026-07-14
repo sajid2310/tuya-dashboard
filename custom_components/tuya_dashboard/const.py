@@ -38,6 +38,13 @@ DEFAULT_LOCAL_POLLING = False
 # integration's connection is very unlikely to matter.
 DEFAULT_LOCAL_POLL_INTERVAL = 900  # 15 minutes
 
+# Hard ceiling on one full sync (executor job) so that a single device
+# connection hanging (e.g. because another integration such as LocalTuya
+# already holds its one allowed local connection) can never silently
+# freeze the coordinator forever. See the comment in coordinator.py's
+# _async_update_data for the full story.
+SYNC_TIMEOUT = 90  # seconds
+
 REGIONS = {
     "cn": "China",
     "us": "Western America",
