@@ -165,6 +165,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
                     "name": d.get("name", dev_id),
                     "status": "online" if d.get("online") else "offline",
                     "ip": d.get("ip", ""),
+                    "mac": d.get("mac", ""),
                     "local_key": d.get("key", ""),
                     "version": d.get("version", ""),
                     "category": d.get("category", ""),

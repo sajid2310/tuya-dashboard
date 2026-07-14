@@ -114,6 +114,7 @@ class TuyaDashboardPanel extends HTMLElement {
       out = out.filter((d) =>
         (d.name || "").toLowerCase().includes(q) ||
         (d.ip || "").toLowerCase().includes(q) ||
+        (d.mac || "").toLowerCase().includes(q) ||
         (d.device_id || "").toLowerCase().includes(q) ||
         (d.category || "").toLowerCase().includes(q)
       );
@@ -194,6 +195,7 @@ class TuyaDashboardPanel extends HTMLElement {
         <td>${escapeHtml(d.name)}</td>
         <td><span class="pill ${d.status === "online" ? "online" : "offline"}">${d.status}</span></td>
         <td class="mono">${escapeHtml(d.ip || "—")}</td>
+        <td class="mono small">${escapeHtml(d.mac || "—")}</td>
         <td class="mono small">${escapeHtml(d.device_id)}</td>
         <td class="mono key-cell">
           <span>${keyDisplay}</span>
@@ -368,7 +370,7 @@ class TuyaDashboardPanel extends HTMLElement {
       <table>
         <thead>
           <tr>
-            <th>Name</th><th>Status</th><th>IP</th><th>Device ID</th><th>Local Key</th>
+            <th>Name</th><th>Status</th><th>IP</th><th>MAC</th><th>Device ID</th><th>Local Key</th>
             <th>Version</th><th>Category</th><th>Controls</th><th></th>
           </tr>
         </thead>
